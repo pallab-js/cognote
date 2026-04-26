@@ -204,6 +204,51 @@ pub fn open_file_external(state: State<AppState>, id: String) -> Result<(), Stri
     opener::open(full_path).map_err(|e| e.to_string())
 }
 
+// ── Mind Map ──────────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct MindMapNode {
+    pub id: String,
+    pub label: String,
+    pub children: Vec<MindMapNode>,
+}
+
+#[tauri::command]
+pub fn get_mindmap_data(state: State<AppState>, note_id: String) -> Result<MindMapNode, String> {
+    let db = state.db.lock().unwrap();
+    let note = db.get_note(&note_id).map_err(|e| e.to_string())?;
+    let content = note.content.unwrap_or_default();
+    let root = parse_headings_to_tree(&note.title, &content);
+    Ok(root)
+}
+
+fn parse_headings_to_tree(title: &str, content: &str) -> MindMapNode {
+    // Parse TipTap JSON for headings
+    let mut children: Vec<MindMapNode> = Vec::new();
+    if let Ok(doc) = serde_json::from_str::<serde_json::Value>(content) {
+        if let Some(nodes) = doc["content"].as_array() {
+            for node in nodes {
+                if node["type"] == "heading" {
+                    let text = node["content"].as_array()
+                        .and_then(|c| c.first())
+                        .and_then(|t| t["text"].as_str())
+                        .unwrap_or("").to_string();
+                    if !text.is_empty() {
+                        children.push(MindMapNode {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            label: text,
+                            children: vec![],
+                        });
+                    }
+                }
+            }
+        }
+    }
+    MindMapNode { id: note_id_placeholder(), label: title.to_string(), children }
+}
+
+fn note_id_placeholder() -> String { uuid::Uuid::new_v4().to_string() }
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 #[tauri::command]

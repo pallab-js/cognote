@@ -42,6 +42,7 @@ pub fn run() {
             commands::remove_note_link,
             commands::get_backlinks,
             commands::get_knowledge_graph,
+            commands::get_mindmap_data,
             commands::import_file,
             commands::list_files,
             commands::delete_file,

@@ -66,6 +66,8 @@ export const getBacklinks = (note_id: string) =>
   invoke<NoteLink[]>('get_backlinks', { noteId: note_id });
 export const getKnowledgeGraph = () =>
   invoke<GraphData>('get_knowledge_graph');
+export const getMindmapData = (note_id: string) =>
+  invoke<{ id: string; label: string; children: any[] }>('get_mindmap_data', { noteId: note_id });
 
 // Files
 export const importFile = (source_path: string, notebook_id?: string) =>
