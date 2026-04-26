@@ -1,156 +1,168 @@
-<script>
-  import { invoke } from "@tauri-apps/api/core";
+<!-- ANCHOR: SHELL_READY -->
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { Search, Network, Map, LayoutDashboard, Files, Sun, Moon, BookOpen, Tag } from 'lucide-svelte';
+  import NotebookTree from '$lib/components/NotebookTree.svelte';
+  import TagList from '$lib/components/TagList.svelte';
+  import NoteList from '$lib/components/NoteList.svelte';
+  import NoteEditor from '$lib/components/NoteEditor.svelte';
+  import KnowledgeGraphView from '$lib/components/KnowledgeGraphView.svelte';
+  import MindMapView from '$lib/components/MindMapView.svelte';
+  import Dashboard from '$lib/components/Dashboard.svelte';
+  import FileBrowser from '$lib/components/FileBrowser.svelte';
+  import StatusBar from '$lib/components/StatusBar.svelte';
+  import { notebooks, refreshNotebooks } from '$lib/stores/notebooks';
+  import { currentView, searchQuery, appConfig } from '$lib/stores/app';
+  import { updateAppConfig } from '$lib/commands';
 
-  let name = $state("");
-  let greetMsg = $state("");
+  let sidebarTab: 'notebooks' | 'tags' | 'files' = 'notebooks';
 
-  async function greet(event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+  onMount(() => { refreshNotebooks(); });
+
+  async function toggleTheme() {
+    const newTheme = $appConfig.theme === 'dark' ? 'light' : 'dark';
+    appConfig.update(c => ({ ...c, theme: newTheme }));
+    document.body.classList.toggle('light', newTheme === 'light');
+    await updateAppConfig(newTheme);
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<div class="app">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot">●</span>
+      <span class="brand-name">Cognote</span>
+    </div>
+    <div class="search-wrap">
+      <Search size={13} color="var(--text-muted)"/>
+      <input
+        class="search-input"
+        type="text"
+        placeholder="Search notes..."
+        bind:value={$searchQuery}
+      />
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" title="Graph" class:active={$currentView === 'graph'} on:click={() => currentView.set('graph')}><Network size={15}/></button>
+      <button class="icon-btn" title="Mind Map" class:active={$currentView === 'mindmap'} on:click={() => currentView.set('mindmap')}><Map size={15}/></button>
+      <button class="icon-btn" title="Dashboard" class:active={$currentView === 'dashboard'} on:click={() => currentView.set('dashboard')}><LayoutDashboard size={15}/></button>
+      <button class="icon-btn" title="Toggle theme" on:click={toggleTheme}>
+        {#if $appConfig.theme === 'dark'}<Sun size={15}/>{:else}<Moon size={15}/>{/if}
+      </button>
+    </div>
+  </header>
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+  <div class="body">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-tabs">
+        <button class="stab" class:active={sidebarTab === 'notebooks'} on:click={() => sidebarTab = 'notebooks'}>
+          <BookOpen size={13}/> Notebooks
+        </button>
+        <button class="stab" class:active={sidebarTab === 'tags'} on:click={() => sidebarTab = 'tags'}>
+          <Tag size={13}/> Tags
+        </button>
+        <button class="stab" class:active={sidebarTab === 'files'} on:click={() => { sidebarTab = 'files'; currentView.set('files'); }}>
+          <Files size={13}/> Files
+        </button>
+      </div>
+      <div class="sidebar-content">
+        {#if sidebarTab === 'notebooks'}
+          <NotebookTree items={$notebooks} />
+        {:else if sidebarTab === 'tags'}
+          <TagList />
+        {:else}
+          <FileBrowser />
+        {/if}
+      </div>
+    </aside>
+
+    <!-- Note list -->
+    {#if $currentView === 'editor'}
+      <div class="note-list-pane">
+        <NoteList />
+      </div>
+    {/if}
+
+    <!-- Main view -->
+    <main class="main-view">
+      {#if $currentView === 'editor'}
+        <NoteEditor />
+      {:else if $currentView === 'graph'}
+        <KnowledgeGraphView />
+      {:else if $currentView === 'mindmap'}
+        <MindMapView />
+      {:else if $currentView === 'dashboard'}
+        <Dashboard />
+      {:else if $currentView === 'files'}
+        <FileBrowser />
+      {/if}
+    </main>
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
+  <StatusBar />
+</div>
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
+  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; height: 44px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-button);
+  }
+  .brand { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .brand-dot { color: var(--green-brand); font-size: 10px; }
+  .brand-name { font-size: 14px; font-weight: 500; color: var(--text-primary); letter-spacing: -0.2px; }
 
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+  .search-wrap {
+    flex: 1; display: flex; align-items: center; gap: 8px;
+    background: var(--bg-primary); border: 1px solid var(--border-standard);
+    border-radius: 6px; padding: 6px 10px; max-width: 400px;
+  }
+  .search-input {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text-primary); font-size: 13px; font-family: var(--font-sans);
+  }
+  .search-input::placeholder { color: var(--text-muted); }
+  .search-wrap:focus-within { border-color: var(--green-brand); }
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  .topbar-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .icon-btn {
+    background: none; border: 1px solid transparent; cursor: pointer;
+    color: var(--text-muted); padding: 6px; border-radius: 6px;
+    display: flex; align-items: center;
+  }
+  .icon-btn:hover { color: var(--text-primary); border-color: var(--border-prominent); }
+  .icon-btn.active { color: var(--green-brand); border-color: var(--green-border); }
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
+  .body { display: flex; flex: 1; overflow: hidden; }
 
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
+  .sidebar {
+    width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border-subtle); overflow: hidden;
+  }
+  .sidebar-tabs {
+    display: flex; border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+  .stab {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 8px 4px; background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 11px; font-weight: 500;
+    border-bottom: 2px solid transparent; transition: color 0.1s;
+  }
+  .stab:hover { color: var(--text-secondary); }
+  .stab.active { color: var(--text-primary); border-bottom-color: var(--green-brand); }
+  .sidebar-content { flex: 1; overflow-y: auto; padding: 8px; }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  .note-list-pane {
+    width: 240px; flex-shrink: 0;
+    border-right: 1px solid var(--border-subtle);
+    overflow: hidden; display: flex; flex-direction: column;
   }
 
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
+  .main-view { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 </style>

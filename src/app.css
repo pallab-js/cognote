@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #171717;
+  --bg-button: #0f0f0f;
+  --border-subtle: #242424;
+  --border-standard: #2e2e2e;
+  --border-prominent: #363636;
+  --border-secondary: #393939;
+  --text-primary: #fafafa;
+  --text-secondary: #b4b4b4;
+  --text-muted: #898989;
+  --green-brand: #3ecf8e;
+  --green-link: #00c573;
+  --green-border: rgba(62, 207, 142, 0.3);
+  --surface-glass: rgba(41, 41, 41, 0.84);
+  --font-sans: 'Circular', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'Source Code Pro', 'Office Code Pro', Menlo, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-prominent); border-radius: 3px; }
+
+/* Focus */
+:focus-visible { outline: 1px solid var(--green-brand); outline-offset: 2px; }
+
+/* Light theme */
+body.light {
+  --bg-primary: #f5f5f5;
+  --bg-button: #e8e8e8;
+  --border-subtle: #d4d4d4;
+  --border-standard: #c8c8c8;
+  --border-prominent: #b0b0b0;
+  --border-secondary: #a0a0a0;
+  --text-primary: #111111;
+  --text-secondary: #444444;
+  --text-muted: #666666;
+  --surface-glass: rgba(240, 240, 240, 0.9);
+}
