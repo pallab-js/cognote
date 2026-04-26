@@ -58,7 +58,7 @@
           {#if hasChildren}
             {#if expanded[nb.id]}<ChevronDown size={12}/>{:else}<ChevronRight size={12}/>{/if}
           {:else}
-            <span style="width:12px;display:inline-block"/>
+            <span style="width:12px;display:inline-block"></span>
           {/if}
         </button>
         {#if expanded[nb.id]}<FolderOpen size={14} color="var(--green-brand)"/>{:else}<Folder size={14} color="var(--text-muted)"/>{/if}

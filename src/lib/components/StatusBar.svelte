@@ -18,7 +18,7 @@
   <span class="stat">{$wordCount} words</span>
   <span class="sep">·</span>
   <span class="stat">{savedText}</span>
-  <span class="spacer"/>
+  <span class="spacer"></span>
   <span class="local-badge">● Local</span>
 </div>
 
