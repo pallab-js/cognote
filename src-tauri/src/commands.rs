@@ -81,9 +81,9 @@ pub fn delete_note(state: State<AppState>, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn list_notes(state: State<AppState>, notebook_id: Option<String>, tag_id: Option<String>) -> Result<Vec<Note>, String> {
+pub fn list_notes(state: State<AppState>, notebook_id: Option<String>, tag_id: Option<String>, search_query: Option<String>) -> Result<Vec<Note>, String> {
     state.db.lock().unwrap()
-        .list_notes(notebook_id.as_deref(), tag_id.as_deref())
+        .list_notes(notebook_id.as_deref(), tag_id.as_deref(), search_query.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -248,6 +248,35 @@ fn parse_headings_to_tree(title: &str, content: &str) -> MindMapNode {
 }
 
 fn note_id_placeholder() -> String { uuid::Uuid::new_v4().to_string() }
+
+// ── Backup ────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn backup_vault(state: State<AppState>) -> Result<String, String> {
+    let vault = state.vault_path.lock().unwrap().clone();
+    let backup_path = format!("{}/.cognote-backup.zip", vault);
+    let file = fs::File::create(&backup_path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let vault_path = Path::new(&vault);
+    for entry in walkdir::WalkDir::new(vault_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let rel = entry.path().strip_prefix(vault_path).map_err(|e| e.to_string())?;
+        let rel_str = rel.to_string_lossy();
+        // skip the backup file itself
+        if rel_str == ".cognote-backup.zip" { continue; }
+        zip.start_file(rel_str, options).map_err(|e| e.to_string())?;
+        let mut f = fs::File::open(entry.path()).map_err(|e| e.to_string())?;
+        std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
+    }
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(backup_path)
+}
 
 // ── Search ────────────────────────────────────────────────────────────────────
 

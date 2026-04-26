@@ -48,6 +48,7 @@ pub fn run() {
             commands::delete_file,
             commands::open_file_external,
             commands::search_notes,
+            commands::backup_vault,
             commands::get_daily_stats,
             commands::get_app_config,
             commands::update_app_config,

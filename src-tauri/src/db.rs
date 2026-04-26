@@ -322,7 +322,12 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_notes(&self, notebook_id: Option<&str>, tag_id: Option<&str>) -> Result<Vec<Note>> {
+    pub fn list_notes(&self, notebook_id: Option<&str>, tag_id: Option<&str>, search_query: Option<&str>) -> Result<Vec<Note>> {
+        if let Some(q) = search_query {
+            let pattern = format!("%{}%", q);
+            let mut stmt = self.conn.prepare("SELECT id, title, content, notebook_id, is_pinned, created_at, updated_at FROM notes WHERE title LIKE ?1 OR content LIKE ?1 ORDER BY is_pinned DESC, updated_at DESC")?;
+            return stmt.query_map(params![pattern], note_from_row)?.collect();
+        }
         if let Some(nb) = notebook_id {
             let mut stmt = self.conn.prepare("SELECT id, title, content, notebook_id, is_pinned, created_at, updated_at FROM notes WHERE notebook_id = ?1 ORDER BY is_pinned DESC, updated_at DESC")?;
             let rows = stmt.query_map(params![nb], note_from_row)?.collect::<Result<Vec<_>>>()?;

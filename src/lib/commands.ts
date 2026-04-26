@@ -46,8 +46,8 @@ export const updateNote = (id: string, title?: string, content?: string, noteboo
   invoke<Note>('update_note', { id, title, content, notebookId: notebook_id });
 export const deleteNote = (id: string) =>
   invoke<void>('delete_note', { id });
-export const listNotes = (notebook_id?: string, tag_id?: string) =>
-  invoke<Note[]>('list_notes', { notebookId: notebook_id, tagId: tag_id });
+export const listNotes = (notebook_id?: string, tag_id?: string, search_query?: string) =>
+  invoke<Note[]>('list_notes', { notebookId: notebook_id, tagId: tag_id, searchQuery: search_query });
 
 // Tags
 export const addTag = (note_id: string, tag_name: string) =>
@@ -82,6 +82,8 @@ export const openFileExternal = (id: string) =>
 // Search & Stats
 export const searchNotes = (query: string) =>
   invoke<SearchResult[]>('search_notes', { query });
+export const backupVault = () =>
+  invoke<string>('backup_vault');
 export const getDailyStats = () =>
   invoke<DailyStats>('get_daily_stats');
 
