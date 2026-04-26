@@ -13,11 +13,44 @@
   import StatusBar from '$lib/components/StatusBar.svelte';
   import { notebooks, refreshNotebooks } from '$lib/stores/notebooks';
   import { currentView, searchQuery, appConfig } from '$lib/stores/app';
-  import { updateAppConfig } from '$lib/commands';
+  import { updateAppConfig, createNote } from '$lib/commands';
+  import { activeNoteId, activeNotebookId } from '$lib/stores/app';
+  import { refreshNotes } from '$lib/stores/notes';
 
   let sidebarTab: 'notebooks' | 'tags' | 'files' = 'notebooks';
+  let searchInput: HTMLInputElement;
 
-  onMount(() => { refreshNotebooks(); });
+  onMount(() => {
+    refreshNotebooks();
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  });
+
+  async function handleKeydown(e: KeyboardEvent) {
+    const meta = e.metaKey || e.ctrlKey;
+    if (!meta) return;
+    switch (e.key) {
+      case 'n':
+        e.preventDefault();
+        const note = await createNote('Untitled', $activeNotebookId ?? undefined);
+        await refreshNotes($activeNotebookId ?? undefined);
+        activeNoteId.set(note.id);
+        currentView.set('editor');
+        break;
+      case 'k':
+        e.preventDefault();
+        searchInput?.focus();
+        break;
+      case 'g':
+        e.preventDefault();
+        currentView.set('graph');
+        break;
+      case 'm':
+        e.preventDefault();
+        currentView.set('mindmap');
+        break;
+    }
+  }
 
   async function toggleTheme() {
     const newTheme = $appConfig.theme === 'dark' ? 'light' : 'dark';
@@ -39,8 +72,9 @@
       <input
         class="search-input"
         type="text"
-        placeholder="Search notes..."
+        placeholder="Search notes... (⌘K)"
         bind:value={$searchQuery}
+        bind:this={searchInput}
       />
     </div>
     <div class="topbar-actions">
