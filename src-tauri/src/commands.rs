@@ -145,23 +145,32 @@ pub fn get_knowledge_graph(state: State<AppState>) -> Result<GraphData, String> 
 #[tauri::command]
 pub fn import_file(state: State<AppState>, source_path: String, notebook_id: Option<String>) -> Result<FileInfo, String> {
     let vault = state.vault_path.lock().unwrap().clone();
-    let src = Path::new(&source_path);
-    let file_name = src.file_name()
+
+    // Fix 1: canonicalize source and verify it's a real file (prevents path traversal)
+    let src = fs::canonicalize(&source_path).map_err(|_| "Source file not found")?;
+    if !src.is_file() {
+        return Err("Source path is not a file".into());
+    }
+
+    let orig_name = src.file_name()
         .ok_or("Invalid file path")?
         .to_string_lossy()
         .to_string();
 
+    // Fix 3: UUID-prefix the destination filename to avoid collisions
+    let file_name = format!("{}_{}", uuid::Uuid::new_v4(), orig_name);
+
     let dest_dir = Path::new(&vault).join("files");
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(&file_name);
-    fs::copy(src, &dest).map_err(|e| e.to_string())?;
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
 
     let size = fs::metadata(&dest).ok().map(|m| m.len() as i64);
-    let mime = infer_mime(&file_name);
+    let mime = infer_mime(&orig_name);
     let rel_path = format!("files/{}", file_name);
 
     state.db.lock().unwrap()
-        .create_file(&file_name, &rel_path, mime.as_deref(), size, notebook_id.as_deref())
+        .create_file(&orig_name, &rel_path, mime.as_deref(), size, notebook_id.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -218,11 +227,11 @@ pub fn get_mindmap_data(state: State<AppState>, note_id: String) -> Result<MindM
     let db = state.db.lock().unwrap();
     let note = db.get_note(&note_id).map_err(|e| e.to_string())?;
     let content = note.content.unwrap_or_default();
-    let root = parse_headings_to_tree(&note.title, &content);
+    let root = parse_headings_to_tree(&note_id, &note.title, &content);
     Ok(root)
 }
 
-fn parse_headings_to_tree(title: &str, content: &str) -> MindMapNode {
+fn parse_headings_to_tree(note_id: &str, title: &str, content: &str) -> MindMapNode {
     // Parse TipTap JSON for headings
     let mut children: Vec<MindMapNode> = Vec::new();
     if let Ok(doc) = serde_json::from_str::<serde_json::Value>(content) {
@@ -244,38 +253,41 @@ fn parse_headings_to_tree(title: &str, content: &str) -> MindMapNode {
             }
         }
     }
-    MindMapNode { id: note_id_placeholder(), label: title.to_string(), children }
+    MindMapNode { id: note_id.to_string(), label: title.to_string(), children }
 }
-
-fn note_id_placeholder() -> String { uuid::Uuid::new_v4().to_string() }
 
 // ── Backup ────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn backup_vault(state: State<AppState>) -> Result<String, String> {
     let vault = state.vault_path.lock().unwrap().clone();
-    let backup_path = format!("{}/.cognote-backup.zip", vault);
+    let vault_path = Path::new(&vault);
+
+    // Fix 4: write backup to a sibling directory so it's never inside the vault
+    let backup_dir = vault_path.parent()
+        .ok_or("Vault has no parent directory")?
+        .join("cognote-backups");
+    fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let backup_path = backup_dir.join(format!("backup_{}.zip", timestamp));
+
     let file = fs::File::create(&backup_path).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    let vault_path = Path::new(&vault);
     for entry in walkdir::WalkDir::new(vault_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
     {
         let rel = entry.path().strip_prefix(vault_path).map_err(|e| e.to_string())?;
-        let rel_str = rel.to_string_lossy();
-        // skip the backup file itself
-        if rel_str == ".cognote-backup.zip" { continue; }
-        zip.start_file(rel_str, options).map_err(|e| e.to_string())?;
+        zip.start_file(rel.to_string_lossy(), options).map_err(|e| e.to_string())?;
         let mut f = fs::File::open(entry.path()).map_err(|e| e.to_string())?;
         std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
     }
     zip.finish().map_err(|e| e.to_string())?;
-    Ok(backup_path)
+    Ok(backup_path.to_string_lossy().to_string())
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

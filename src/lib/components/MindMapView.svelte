@@ -20,8 +20,8 @@
 
       const root = d3h.hierarchy(data);
       const nodeWidth = 140, nodeHeight = 36, hGap = 60, vGap = 12;
-      const treeLayout = d3h.tree<any>()
-        .nodeSize([nodeHeight + vGap, nodeWidth + hGap]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const treeLayout = (d3h.tree as any)().nodeSize([nodeHeight + vGap, nodeWidth + hGap]);
       treeLayout(root);
 
       // Compute bounds

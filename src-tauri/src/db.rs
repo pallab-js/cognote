@@ -323,24 +323,45 @@ impl Database {
     }
 
     pub fn list_notes(&self, notebook_id: Option<&str>, tag_id: Option<&str>, search_query: Option<&str>) -> Result<Vec<Note>> {
-        if let Some(q) = search_query {
-            let pattern = format!("%{}%", q);
-            let mut stmt = self.conn.prepare("SELECT id, title, content, notebook_id, is_pinned, created_at, updated_at FROM notes WHERE title LIKE ?1 OR content LIKE ?1 ORDER BY is_pinned DESC, updated_at DESC")?;
-            return stmt.query_map(params![pattern], note_from_row)?.collect();
+        let mut query = "
+            SELECT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
+            FROM notes n
+        ".to_string();
+        
+        let mut conditions = Vec::new();
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(tid) = tag_id {
+            query.push_str(" JOIN note_tags nt ON n.id = nt.note_id");
+            conditions.push("nt.tag_id = ?");
+            params_vec.push(Box::new(tid.to_string()));
         }
+
         if let Some(nb) = notebook_id {
-            let mut stmt = self.conn.prepare("SELECT id, title, content, notebook_id, is_pinned, created_at, updated_at FROM notes WHERE notebook_id = ?1 ORDER BY is_pinned DESC, updated_at DESC")?;
-            let rows = stmt.query_map(params![nb], note_from_row)?.collect::<Result<Vec<_>>>()?;
-            Ok(rows)
-        } else if let Some(tid) = tag_id {
-            let mut stmt = self.conn.prepare("SELECT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at FROM notes n JOIN note_tags nt ON n.id = nt.note_id WHERE nt.tag_id = ?1 ORDER BY n.updated_at DESC")?;
-            let rows = stmt.query_map(params![tid], note_from_row)?.collect::<Result<Vec<_>>>()?;
-            Ok(rows)
-        } else {
-            let mut stmt = self.conn.prepare("SELECT id, title, content, notebook_id, is_pinned, created_at, updated_at FROM notes ORDER BY is_pinned DESC, updated_at DESC")?;
-            let rows = stmt.query_map([], note_from_row)?.collect::<Result<Vec<_>>>()?;
-            Ok(rows)
+            conditions.push("n.notebook_id = ?");
+            params_vec.push(Box::new(nb.to_string()));
         }
+
+        if let Some(q) = search_query {
+            conditions.push("(n.title LIKE ? OR n.content LIKE ?)");
+            let pattern = format!("%{}%", q);
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern));
+        }
+
+        if !conditions.is_empty() {
+            query.push_str(" WHERE ");
+            query.push_str(&conditions.join(" AND "));
+        }
+
+        query.push_str(" ORDER BY n.is_pinned DESC, n.updated_at DESC");
+
+        let mut stmt = self.conn.prepare(&query)?;
+        
+        // Convert Vec<Box<dyn ToSql>> to something we can pass to query_map
+        // This is a bit tricky with rusqlite. Using params_from_iter.
+        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), note_from_row)?;
+        rows.collect()
     }
 
     // ── Tags ──────────────────────────────────────────────────────────────────
@@ -483,6 +504,8 @@ impl Database {
     // ── Search ────────────────────────────────────────────────────────────────
 
     pub fn search_notes(&self, query: &str) -> Result<Vec<SearchResult>> {
+        // Fix 2: wrap in double-quotes and escape internal quotes to prevent FTS5 injection
+        let safe_query = format!("\"{}\"", query.replace('"', "\"\""));
         let mut stmt = self.conn.prepare(
             "SELECT n.id, n.title, snippet(notes_fts, 1, '<mark>', '</mark>', '...', 20) \
              FROM notes_fts \
@@ -490,7 +513,7 @@ impl Database {
              WHERE notes_fts MATCH ?1 \
              ORDER BY rank LIMIT 50"
         )?;
-        let rows = stmt.query_map(params![query], |row| Ok(SearchResult {
+        let rows = stmt.query_map(params![safe_query], |row| Ok(SearchResult {
             id: row.get(0)?,
             title: row.get(1)?,
             snippet: row.get(2)?,
@@ -521,12 +544,23 @@ impl Database {
             let dates: Vec<String> = stmt.query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())
                 .collect();
-            let mut s = 0i64;
+            
             let today = chrono::Local::now().date_naive();
-            for (i, d) in dates.iter().enumerate() {
-                if let Ok(date) = chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
-                    let expected = today - chrono::Duration::days(i as i64);
-                    if date == expected { s += 1; } else { break; }
+            let mut s = 0i64;
+            let mut expected = today;
+            
+            for d in dates {
+                if let Ok(date) = chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d") {
+                    if date == expected {
+                        s += 1;
+                        expected = date - chrono::Duration::days(1);
+                    } else if date == today - chrono::Duration::days(1) && s == 0 {
+                        // If we haven't posted today, but posted yesterday, streak starts from yesterday
+                        s = 1;
+                        expected = date - chrono::Duration::days(1);
+                    } else if date < expected {
+                        break;
+                    }
                 }
             }
             s
@@ -619,11 +653,11 @@ mod tests {
         assert_eq!(updated.title, "Hello World");
         assert_eq!(updated.content, Some("{\"type\":\"doc\"}".to_string()));
 
-        let notes = db.list_notes(None, None).unwrap();
+        let notes = db.list_notes(None, None, None).unwrap();
         assert_eq!(notes.len(), 1);
 
         db.delete_note(&note.id).unwrap();
-        let notes = db.list_notes(None, None).unwrap();
+        let notes = db.list_notes(None, None, None).unwrap();
         assert_eq!(notes.len(), 0);
     }
 
@@ -644,7 +678,7 @@ mod tests {
 
         db.remove_tag(&note.id, &tag.id).unwrap();
         // Tag record stays, junction removed
-        let notes_by_tag = db.list_notes(None, Some(&tag.id)).unwrap();
+        let notes_by_tag = db.list_notes(None, Some(&tag.id), None).unwrap();
         assert_eq!(notes_by_tag.len(), 0);
     }
 
@@ -714,8 +748,59 @@ mod tests {
         db.create_note("Work Note", Some(&nb.id)).unwrap();
         db.create_note("Personal Note", None).unwrap();
 
-        let work_notes = db.list_notes(Some(&nb.id), None).unwrap();
+        let work_notes = db.list_notes(Some(&nb.id), None, None).unwrap();
         assert_eq!(work_notes.len(), 1);
         assert_eq!(work_notes[0].title, "Work Note");
+    }
+
+    #[test]
+    fn test_list_notes_combined_filter() {
+        let db = db();
+        let nb1 = db.create_notebook("Work", None).unwrap();
+        let nb2 = db.create_notebook("Personal", None).unwrap();
+        db.create_note("Meeting", Some(&nb1.id)).unwrap();
+        db.create_note("Shopping", Some(&nb2.id)).unwrap();
+        db.create_note("Work Task", Some(&nb1.id)).unwrap();
+
+        // Search for "Work" in nb1 should return "Work Task"
+        // Wait, list_notes current implementation:
+        // if let Some(q) = search_query { ... returns matches from all notebooks ... }
+        
+        let _results = db.list_notes(Some(&nb1.id), None, Some("Work")).unwrap();
+        // If current implementation is bugged (ignoring notebook_id), this will fail or return unexpected results
+        // Actually, "Work" search query will match "Work Task" in nb1.
+        // But if it ignores nb1 and searches globally, and I added "Work Task" in nb2 as well...
+        
+        db.create_note("Work from home", Some(&nb2.id)).unwrap();
+        let results = db.list_notes(Some(&nb1.id), None, Some("Work")).unwrap();
+        
+        // Expected: only 1 note ("Work Task")
+        // Actual (buggy): 2 notes ("Work Task" and "Work from home")
+        assert_eq!(results.len(), 1, "Should only return matches within the specified notebook");
+    }
+
+    #[test]
+    fn test_streak_logic() {
+        let db = db();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let yesterday = (chrono::Local::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+        
+        // Scenario 1: Note today
+        db.conn.execute("INSERT INTO notes (id, title, created_at) VALUES (?, ?, ?)", params![Uuid::new_v4().to_string(), "Today", today]).unwrap();
+        let stats = db.get_daily_stats().unwrap();
+        assert_eq!(stats.streak, 1);
+
+        // Scenario 2: Note today and yesterday
+        db.conn.execute("INSERT INTO notes (id, title, created_at) VALUES (?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday]).unwrap();
+        let stats = db.get_daily_stats().unwrap();
+        assert_eq!(stats.streak, 2);
+
+        // Reset
+        db.conn.execute("DELETE FROM notes", []).unwrap();
+        
+        // Scenario 3: Note only yesterday (streak should be 1)
+        db.conn.execute("INSERT INTO notes (id, title, created_at) VALUES (?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday]).unwrap();
+        let stats = db.get_daily_stats().unwrap();
+        assert_eq!(stats.streak, 1);
     }
 }
