@@ -1,8 +1,6 @@
-# Cognote <!-- ANCHOR: RELEASE_READY -->
+# Cognote
 
-> Privacy-first, offline desktop notebook with a connected knowledge graph.
-
-![Cognote](static/favicon.png)
+A privacy-first, offline desktop notebook with a connected knowledge graph.
 
 ## Features
 
