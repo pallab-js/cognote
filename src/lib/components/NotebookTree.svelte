@@ -105,7 +105,7 @@
 </ul>
 
 {#if depth === 0}
-  <button class="add-root-btn" onclick={() => { console.log('Button clicked!'); addNotebook(null); }}>
+  <button class="add-root-btn" onclick={() => addNotebook(null)}>
     <Plus size={12}/> New notebook
   </button>
 {/if}
