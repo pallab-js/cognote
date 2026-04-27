@@ -42,8 +42,8 @@ export const createNote = (title: string, notebook_id?: string) =>
   invoke<Note>('create_note', { title, notebookId: notebook_id });
 export const getNote = (id: string) =>
   invoke<Note>('get_note', { id });
-export const updateNote = (id: string, title?: string, content?: string, notebook_id?: string | null) =>
-  invoke<Note>('update_note', { id, title, content, notebookId: notebook_id });
+export const updateNote = (id: string, title?: string, content?: string, notebook_id?: string | null, is_pinned?: boolean) =>
+  invoke<Note>('update_note', { id, title, content, notebookId: notebook_id, isPinned: is_pinned });
 export const deleteNote = (id: string) =>
   invoke<void>('delete_note', { id });
 export const deleteNotes = (ids: string[]) =>

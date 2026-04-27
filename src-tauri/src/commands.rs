@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use tauri::State;
 use crate::db::{Database, Note, Notebook, Tag, NoteLink, FileInfo, GraphData, SearchResult, DailyStats, AppConfig};
 use std::path::Path;
@@ -18,9 +18,22 @@ fn validate_title(title: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn lock_db<'a>(state: &'a State<'a, AppState>) -> Result<std::sync::MutexGuard<'a, Database>, String> {
+    state.db.lock().map_err(|e| format!("DB lock poisoned: {}", e))
+}
+
+fn read_vault(state: &State<AppState>) -> Result<String, String> {
+    state.vault_path.read().map_err(|e| e.to_string()).map(|s| s.clone())
+}
+
+fn write_vault(state: &State<AppState>, path: &str) -> Result<(), String> {
+    *state.vault_path.write().map_err(|e| e.to_string())? = path.to_string();
+    Ok(())
+}
+
 pub struct AppState {
     pub db: Mutex<Database>,
-    pub vault_path: Mutex<String>,
+    pub vault_path: RwLock<String>,
 }
 
 // ── Notebooks ─────────────────────────────────────────────────────────────────
@@ -34,6 +47,8 @@ pub fn create_notebook(state: State<AppState>, name: String, parent_id: Option<S
 
 #[tauri::command]
 pub fn rename_notebook(state: State<AppState>, id: String, name: String) -> Result<(), String> {
+    let name = name.trim().to_string();
+    validate_title(&name)?;
     state.db.lock().unwrap()
         .rename_notebook(&id, &name)
         .map_err(|e| e.to_string())
@@ -78,6 +93,7 @@ pub fn update_note(
     title: Option<String>,
     content: Option<String>,
     notebook_id: Option<Option<String>>,
+    is_pinned: Option<bool>,
 ) -> Result<Note, String> {
     if let Some(ref t) = title {
         let t = t.trim().to_string();
@@ -88,6 +104,7 @@ pub fn update_note(
                 Some(&t),
                 content.as_deref(),
                 notebook_id.as_ref().map(|o| o.as_deref()),
+                is_pinned,
             )
             .map_err(|e| e.to_string());
     }
@@ -97,6 +114,7 @@ pub fn update_note(
             title.as_deref(),
             content.as_deref(),
             notebook_id.as_ref().map(|o| o.as_deref()),
+            is_pinned,
         )
         .map_err(|e| e.to_string())
 }
@@ -182,7 +200,7 @@ pub fn get_knowledge_graph(state: State<AppState>) -> Result<GraphData, String> 
 
 #[tauri::command]
 pub fn import_file(state: State<AppState>, source_path: String, notebook_id: Option<String>) -> Result<FileInfo, String> {
-    let vault = state.vault_path.lock().unwrap().clone();
+    let vault = state.vault_path.read().unwrap().clone();
 
     // Fix 1: canonicalize source and verify it's a real file (prevents path traversal)
     let src = fs::canonicalize(&source_path).map_err(|_| "Source file not found")?;
@@ -250,7 +268,7 @@ pub fn list_files(state: State<AppState>, notebook_id: Option<String>) -> Result
 pub fn delete_file(state: State<AppState>, id: String) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let path = db.get_file_path(&id).map_err(|e| e.to_string())?;
-    let vault = state.vault_path.lock().unwrap().clone();
+    let vault = state.vault_path.read().unwrap().clone();
     let full_path = Path::new(&vault).join(&path);
     
     // Security: canonicalize and verify the resolved path stays within the vault
@@ -262,7 +280,7 @@ pub fn delete_file(state: State<AppState>, id: String) -> Result<(), String> {
         return Err("Invalid file path: path escapes vault directory".to_string());
     }
     
-    let _ = fs::remove_file(canonical);
+    fs::remove_file(&canonical).map_err(|e| format!("Failed to delete file: {}", e))?;
     db.delete_file(&id).map_err(|e| e.to_string())
 }
 
@@ -270,9 +288,19 @@ pub fn delete_file(state: State<AppState>, id: String) -> Result<(), String> {
 pub fn open_file_external(state: State<AppState>, id: String) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let path = db.get_file_path(&id).map_err(|e| e.to_string())?;
-    let vault = state.vault_path.lock().unwrap().clone();
+    let vault = state.vault_path.read().unwrap().clone();
     let full_path = Path::new(&vault).join(&path);
-    opener::open(full_path).map_err(|e| e.to_string())
+    
+    // Security: canonicalize and verify the resolved path stays within the vault
+    let canonical = fs::canonicalize(&full_path).map_err(|e| e.to_string())?;
+    let vault_canonical = fs::canonicalize(&vault).map_err(|e| e.to_string())?;
+    
+    // Verify path doesn't escape vault (handles symlinks, relative paths, etc.)
+    if !canonical.starts_with(&vault_canonical) {
+        return Err("Invalid file path: path escapes vault directory".to_string());
+    }
+    
+    opener::open(canonical).map_err(|e| e.to_string())
 }
 
 // ── Mind Map ──────────────────────────────────────────────────────────────────
@@ -294,35 +322,48 @@ pub fn get_mindmap_data(state: State<AppState>, note_id: String) -> Result<MindM
 }
 
 fn parse_headings_to_tree(note_id: &str, title: &str, content: &str) -> MindMapNode {
-    // Parse TipTap JSON for headings
-    let mut children: Vec<MindMapNode> = Vec::new();
+    let mut root = MindMapNode { id: note_id.to_string(), label: title.to_string(), children: vec![] };
     if let Ok(doc) = serde_json::from_str::<serde_json::Value>(content) {
         if let Some(nodes) = doc["content"].as_array() {
+            let mut stack: Vec<(u64, usize)> = vec![]; // (level, index into children)
             for node in nodes {
                 if node["type"] == "heading" {
+                    let level = node["attrs"]["level"].as_u64().unwrap_or(1);
                     let text = node["content"].as_array()
                         .and_then(|c| c.first())
                         .and_then(|t| t["text"].as_str())
                         .unwrap_or("").to_string();
-                    if !text.is_empty() {
-                        children.push(MindMapNode {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            label: text,
-                            children: vec![],
-                        });
+                    if text.is_empty() { continue; }
+                    let child = MindMapNode { id: uuid::Uuid::new_v4().to_string(), label: text, children: vec![] };
+                    // Pop stack until parent level < current level
+                    while stack.len() > 1 && stack.last().map(|(l, _)| *l >= level).unwrap_or(false) {
+                        stack.pop();
                     }
+                    // Find parent (either root or last child at lower level)
+                    let parent_idx = if stack.len() == 0 { 0 } else { stack.len() - 1 };
+                    let parent_children = if parent_idx == 0 { &mut root.children } else { 
+                        // Traverse to find the right parent
+                        let mut parent = &mut root;
+                        for (_, idx) in stack.iter().skip(1) {
+                            parent = &mut parent.children[*idx];
+                        }
+                        &mut parent.children
+                    };
+                    parent_children.push(child);
+                    let new_idx = parent_children.len() - 1;
+                    stack.push((level, new_idx));
                 }
             }
         }
     }
-    MindMapNode { id: note_id.to_string(), label: title.to_string(), children }
+    root
 }
 
 // ── Backup ────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn backup_vault(state: State<AppState>) -> Result<String, String> {
-    let vault = state.vault_path.lock().unwrap().clone();
+    let vault = state.vault_path.read().unwrap().clone();
     let vault_path = Path::new(&vault);
 
     // Fix 4: write backup to a sibling directory so it's never inside the vault

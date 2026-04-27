@@ -3,7 +3,7 @@ pub mod commands;
 
 use commands::AppState;
 use db::Database;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use tauri::Manager;
 
 // ANCHOR: COMMANDS_REGISTERED
@@ -21,7 +21,7 @@ pub fn run() {
                 .expect("failed to open database");
             app.manage(AppState {
                 db: Mutex::new(db),
-                vault_path: Mutex::new(vault_path),
+                vault_path: RwLock::new(vault_path),
             });
             Ok(())
         })

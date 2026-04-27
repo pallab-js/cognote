@@ -303,12 +303,13 @@ impl Database {
         )
     }
 
-    pub fn update_note(&self, id: &str, title: Option<&str>, content: Option<&str>, notebook_id: Option<Option<&str>>) -> Result<Note> {
+    pub fn update_note(&self, id: &str, title: Option<&str>, content: Option<&str>, notebook_id: Option<Option<&str>>, is_pinned: Option<bool>) -> Result<Note> {
         let has_title = title.is_some();
         let has_content = content.is_some();
         let has_notebook = notebook_id.is_some();
+        let has_pinned = is_pinned.is_some();
 
-        if has_title || has_content || has_notebook {
+        if has_title || has_content || has_notebook || has_pinned {
             let mut query = "UPDATE notes SET updated_at = datetime('now')".to_string();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -322,7 +323,11 @@ impl Database {
             }
             if let Some(nb) = notebook_id {
                 query.push_str(", notebook_id = ?");
-                params_vec.push(Box::new(nb.map(String::from).unwrap_or_default()));
+                params_vec.push(Box::new(nb.map(String::from)));
+            }
+            if let Some(p) = is_pinned {
+                query.push_str(", is_pinned = ?");
+                params_vec.push(Box::new(if p { 1i64 } else { 0i64 }));
             }
             query.push_str(" WHERE id = ?");
             params_vec.push(Box::new(id.to_string()));
@@ -353,6 +358,13 @@ impl Database {
     }
 
     pub fn list_notes(&self, notebook_id: Option<&str>, tag_id: Option<&str>, search_query: Option<&str>) -> Result<Vec<Note>> {
+        // Use FTS5 for search queries for performance
+        if let Some(q) = search_query {
+            if !q.trim().is_empty() {
+                return self.search_notes_inner(q, notebook_id, tag_id);
+            }
+        }
+        
         let mut query = "
             SELECT DISTINCT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
             FROM notes n
@@ -370,13 +382,6 @@ impl Database {
         if let Some(nb) = notebook_id {
             conditions.push("n.notebook_id = ?");
             params_vec.push(Box::new(nb.to_string()));
-        }
-
-        if let Some(q) = search_query {
-            conditions.push("(n.title LIKE ? OR n.content LIKE ?)");
-            let pattern = format!("%{}%", q);
-            params_vec.push(Box::new(pattern.clone()));
-            params_vec.push(Box::new(pattern));
         }
 
         if !conditions.is_empty() {
@@ -531,32 +536,7 @@ impl Database {
     // ── Search ────────────────────────────────────────────────────────────────
 
     pub fn search_notes(&self, query: &str) -> Result<Vec<SearchResult>> {
-        // Sanitize FTS5 query to prevent injection
-        // Escape special FTS5 operators and treat everything as literal phrase search
-        let mut sanitized = String::with_capacity(query.len());
-        for c in query.chars() {
-            match c {
-                '"' => sanitized.push_str("\""),
-                '*' => {}
-                '-' => {}
-                '(' => {}
-                ')' => {}
-                ':' => sanitized.push(' '),
-                '^' => {}
-                '~' => {}
-                '{' => {}
-                '}' => {}
-                '[' => {}
-                ']' => {}
-                _ => sanitized.push(c),
-            }
-        }
-
-        let safe_query = format!(
-            "\"{}\"*",
-            sanitized.trim().replace('"', "\"\"")
-        );
-
+        let safe_query = self.sanitize_fts_query(query);
         if safe_query.len() <= 2 {
             return Ok(vec![]);
         }
@@ -575,6 +555,54 @@ impl Database {
         }))?;
         rows.collect()
     }
+    
+    fn sanitize_fts_query(&self, query: &str) -> String {
+        let mut sanitized = String::with_capacity(query.len());
+        for c in query.chars() {
+            match c {
+                '"' => sanitized.push_str("\""),
+                '*' | '-' | '(' | ')' | '^' | '~' | '{' | '}' | '[' | ']' => {}
+                ':' => sanitized.push(' '),
+                _ => sanitized.push(c),
+            }
+        }
+        format!(
+            "\"{}\"*",
+            sanitized.trim().replace('"', "\"\"")
+        )
+    }
+    
+    fn search_notes_inner(&self, query: &str, notebook_id: Option<&str>, tag_id: Option<&str>) -> Result<Vec<Note>> {
+        let safe_query = self.sanitize_fts_query(query);
+        if safe_query.len() <= 2 {
+            return Ok(vec![]);
+        }
+
+let mut sql = "
+            SELECT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
+            FROM notes_fts 
+            JOIN notes n ON notes_fts.rowid = n.rowid
+            WHERE notes_fts MATCH ?1
+        ".to_string();
+        
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(safe_query)];
+        
+        if let Some(tid) = tag_id {
+            sql.push_str(" JOIN note_tags nt ON n.id = nt.note_id AND nt.tag_id = ?");
+            params_vec.push(Box::new(tid.to_string()));
+        }
+        
+        if let Some(nb) = notebook_id {
+            sql.push_str(" AND n.notebook_id = ?");
+            params_vec.push(Box::new(nb.to_string()));
+        }
+
+        sql.push_str(" ORDER BY n.is_pinned DESC, n.updated_at DESC");
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), note_from_row)?;
+        rows.collect()
+    }
 
     // ── Stats ─────────────────────────────────────────────────────────────────
 
@@ -591,10 +619,14 @@ impl Database {
             |row| row.get(0),
         )?;
 
-        // Streak: consecutive days with at least one note
+        // Streak: consecutive days with at least one note (create OR update)
         let streak: i64 = {
             let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT date(created_at) as d FROM notes ORDER BY d DESC"
+                "SELECT DISTINCT date(d) as d FROM (
+                    SELECT created_at as d FROM notes
+                    UNION ALL
+                    SELECT updated_at as d FROM notes
+                ) ORDER BY d DESC"
             )?;
             let dates: Vec<String> = stmt.query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())

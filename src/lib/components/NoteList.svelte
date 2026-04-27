@@ -2,12 +2,47 @@
   import { FileText, Plus, Trash2, Pin } from 'lucide-svelte';
   import { notes, refreshNotes } from '$lib/stores/notes';
   import { activeNoteId, activeNotebookId, activeTagId, searchQuery, showToast } from '$lib/stores/app';
-  import { createNote, deleteNote, searchNotes } from '$lib/commands';
+  import { createNote, deleteNote, searchNotes, updateNote } from '$lib/commands';
   import type { Note, SearchResult } from '$lib/commands';
   import { onMount } from 'svelte';
 
   let searchResults: SearchResult[] = [];
   let debounceTimer: ReturnType<typeof setTimeout>;
+
+  function extractText(jsonContent: string | null | undefined): string {
+    if (!jsonContent) return '';
+    try {
+      const doc = JSON.parse(jsonContent);
+      const texts: string[] = [];
+      function walk(node: any) {
+        if (node.type === 'text') texts.push(node.text ?? '');
+        (node.content ?? []).forEach(walk);
+      }
+      walk(doc);
+      return texts.join(' ').slice(0, 120);
+    } catch {
+      return '';
+    }
+  }
+
+  function sanitizeSnippet(html: string): string {
+    return html
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/&lt;mark&gt;/g, '<mark>')
+      .replace(/&lt;\/mark&gt;/g, '</mark>');
+  }
+
+  async function togglePin(id: string, pinned: boolean, e: MouseEvent) {
+    e.stopPropagation();
+    try {
+      await updateNote(id, undefined, undefined, undefined, !pinned);
+      refreshNotes($activeNotebookId ?? undefined, $activeTagId ?? undefined);
+    } catch (err) {
+      showToast('Failed to pin note', 'error');
+    }
+  }
 
   $: {
     clearTimeout(debounceTimer);
@@ -43,8 +78,8 @@
   }
 
   $: displayNotes = $searchQuery.trim()
-    ? searchResults.map(r => ({ id: r.id, title: r.title, snippet: r.snippet }))
-    : $notes.map(n => ({ id: n.id, title: n.title, snippet: n.content?.slice(0, 80) ?? '' }));
+    ? searchResults.map(r => ({ id: r.id, title: r.title, snippet: sanitizeSnippet(r.snippet), isPinned: false }))
+    : $notes.map(n => ({ id: n.id, title: n.title, snippet: extractText(n.content), isPinned: n.is_pinned }));
 </script>
 
 <div class="note-list">
@@ -68,6 +103,7 @@
           <span class="note-snippet">{@html item.snippet}</span>
         {/if}
       </div>
+      <button class="icon-btn" class:pinned={item.isPinned} title={item.isPinned ? 'Unpin note' : 'Pin note'} onclick={e => togglePin(item.id, item.isPinned, e)}><Pin size={11}/></button>
       <button class="icon-btn danger" onclick={e => { e.stopPropagation(); remove(item.id, e); }}><Trash2 size={11}/></button>
     </div>
   {/each}
@@ -100,5 +136,6 @@
   .icon-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 2px; border-radius: 4px; display: flex; align-items: center; flex-shrink: 0; }
   .icon-btn:hover { color: var(--text-primary); }
   .icon-btn.danger:hover { color: #ff6b6b; }
+  .icon-btn.pinned { color: var(--green-brand); }
   .empty { padding: 16px 12px; font-size: 12px; color: var(--text-muted); text-align: center; }
 </style>

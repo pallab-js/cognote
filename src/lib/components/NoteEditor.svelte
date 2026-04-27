@@ -83,14 +83,23 @@
   }
 
   // Build mention suggestion list
+  let noteCache: { id: string; title: string }[] = [];
+  let cacheStale = true;
+
   async function getMentionItems(query: string) {
-    try {
-      const notes = await listNotes();
-      return notes
-        .filter(n => n.id !== $activeNoteId && n.title.toLowerCase().includes(query.toLowerCase()))
-        .slice(0, 8)
-        .map(n => ({ id: n.id, label: n.title }));
-    } catch { return []; }
+    if (cacheStale) {
+      try {
+        const notes = await listNotes();
+        noteCache = notes.map(n => ({ id: n.id, title: n.title }));
+        cacheStale = false;
+        setTimeout(() => { cacheStale = true; }, 30_000);
+      } catch { return []; }
+    }
+    const q = query.toLowerCase();
+    return noteCache
+      .filter(n => n.id !== $activeNoteId && n.title.toLowerCase().includes(q))
+      .slice(0, 8)
+      .map(n => ({ id: n.id, label: n.title }));
   }
 
   onMount(() => {

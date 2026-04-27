@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { getKnowledgeGraph } from '$lib/commands';
-  import { activeNoteId } from '$lib/stores/app';
+  import { activeNoteId, currentView } from '$lib/stores/app';
   import { RefreshCw } from 'lucide-svelte';
 
   let container: HTMLElement;
@@ -99,6 +99,7 @@
       // Click node → open note
       cy.on('tap', 'node', (evt: any) => {
         activeNoteId.set(evt.target.id());
+        currentView.set('editor');
       });
 
       // Highlight active note
