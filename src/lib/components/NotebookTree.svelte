@@ -3,7 +3,7 @@
   import type { Notebook } from '$lib/commands';
   import { createNotebook, renameNotebook, deleteNotebook } from '$lib/commands';
   import { notebooks, refreshNotebooks } from '$lib/stores/notebooks';
-  import { activeNotebookId, activeTagId } from '$lib/stores/app';
+  import { activeNotebookId, activeTagId, showToast } from '$lib/stores/app';
 
   export let items: Notebook[] = [];
   export let parentId: string | null = null;
@@ -18,8 +18,13 @@
   async function addNotebook(parent: string | null) {
     const name = prompt('Notebook name:');
     if (!name?.trim()) return;
-    await createNotebook(name.trim(), parent ?? undefined);
-    await refreshNotebooks();
+    try {
+      await createNotebook(name.trim(), parent ?? undefined);
+      await refreshNotebooks();
+    } catch (err) {
+      console.error('Failed to create notebook:', err);
+      showToast('Failed to create notebook: ' + String(err), 'error');
+    }
   }
 
   function startEdit(nb: Notebook) {
@@ -28,16 +33,30 @@
   }
 
   async function commitEdit(id: string) {
-    if (editName.trim()) await renameNotebook(id, editName.trim());
+    if (!editName.trim()) {
+      editing = null;
+      return;
+    }
+    try {
+      await renameNotebook(id, editName.trim());
+    } catch (err) {
+      console.error('Failed to rename notebook:', err);
+      showToast('Failed to rename: ' + String(err), 'error');
+    }
     editing = null;
     await refreshNotebooks();
   }
 
   async function remove(id: string) {
     if (!confirm('Delete notebook and all its children?')) return;
-    await deleteNotebook(id);
-    await refreshNotebooks();
-    if ($activeNotebookId === id) activeNotebookId.set(null);
+    try {
+      await deleteNotebook(id);
+      await refreshNotebooks();
+      if ($activeNotebookId === id) activeNotebookId.set(null);
+    } catch (err) {
+      console.error('Failed to delete notebook:', err);
+      showToast('Failed to delete: ' + String(err), 'error');
+    }
   }
 </script>
 
