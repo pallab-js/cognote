@@ -34,6 +34,7 @@ pub fn run() {
             commands::get_note,
             commands::update_note,
             commands::delete_note,
+            commands::delete_notes,
             commands::list_notes,
             commands::add_tag,
             commands::remove_tag,

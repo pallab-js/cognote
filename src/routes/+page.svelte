@@ -12,7 +12,7 @@
   import FileBrowser from '$lib/components/FileBrowser.svelte';
   import StatusBar from '$lib/components/StatusBar.svelte';
   import { notebooks, refreshNotebooks } from '$lib/stores/notebooks';
-  import { currentView, searchQuery, appConfig } from '$lib/stores/app';
+  import { currentView, searchQuery, appConfig, showToast } from '$lib/stores/app';
   import { updateAppConfig, createNote } from '$lib/commands';
   import { activeNoteId, activeNotebookId } from '$lib/stores/app';
   import { refreshNotes } from '$lib/stores/notes';
@@ -32,10 +32,14 @@
     switch (e.key) {
       case 'n':
         e.preventDefault();
-        const note = await createNote('Untitled', $activeNotebookId ?? undefined);
-        await refreshNotes($activeNotebookId ?? undefined);
-        activeNoteId.set(note.id);
-        currentView.set('editor');
+        try {
+          const note = await createNote('Untitled', $activeNotebookId ?? undefined);
+          await refreshNotes($activeNotebookId ?? undefined);
+          activeNoteId.set(note.id);
+          currentView.set('editor');
+        } catch (err) {
+          showToast('Failed to create note', 'error');
+        }
         break;
       case 'k':
         e.preventDefault();
@@ -56,7 +60,11 @@
     const newTheme = $appConfig.theme === 'dark' ? 'light' : 'dark';
     appConfig.update(c => ({ ...c, theme: newTheme }));
     document.body.classList.toggle('light', newTheme === 'light');
-    await updateAppConfig(newTheme);
+    try {
+      await updateAppConfig(newTheme);
+    } catch (err) {
+      showToast('Failed to save theme preference', 'error');
+    }
   }
 </script>
 
@@ -78,10 +86,10 @@
       />
     </div>
     <div class="topbar-actions">
-      <button class="icon-btn" title="Graph" class:active={$currentView === 'graph'} on:click={() => currentView.set('graph')}><Network size={15}/></button>
-      <button class="icon-btn" title="Mind Map" class:active={$currentView === 'mindmap'} on:click={() => currentView.set('mindmap')}><Map size={15}/></button>
-      <button class="icon-btn" title="Dashboard" class:active={$currentView === 'dashboard'} on:click={() => currentView.set('dashboard')}><LayoutDashboard size={15}/></button>
-      <button class="icon-btn" title="Toggle theme" on:click={toggleTheme}>
+      <button class="icon-btn" title="Graph" class:active={$currentView === 'graph'} onclick={() => currentView.set('graph')}><Network size={15}/></button>
+      <button class="icon-btn" title="Mind Map" class:active={$currentView === 'mindmap'} onclick={() => currentView.set('mindmap')}><Map size={15}/></button>
+      <button class="icon-btn" title="Dashboard" class:active={$currentView === 'dashboard'} onclick={() => currentView.set('dashboard')}><LayoutDashboard size={15}/></button>
+      <button class="icon-btn" title="Toggle theme" onclick={toggleTheme}>
         {#if $appConfig.theme === 'dark'}<Sun size={15}/>{:else}<Moon size={15}/>{/if}
       </button>
     </div>
@@ -91,13 +99,13 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-tabs">
-        <button class="stab" class:active={sidebarTab === 'notebooks'} on:click={() => sidebarTab = 'notebooks'}>
+        <button class="stab" class:active={sidebarTab === 'notebooks'} onclick={() => sidebarTab = 'notebooks'}>
           <BookOpen size={13}/> Notebooks
         </button>
-        <button class="stab" class:active={sidebarTab === 'tags'} on:click={() => sidebarTab = 'tags'}>
+        <button class="stab" class:active={sidebarTab === 'tags'} onclick={() => sidebarTab = 'tags'}>
           <Tag size={13}/> Tags
         </button>
-        <button class="stab" class:active={sidebarTab === 'files'} on:click={() => { sidebarTab = 'files'; currentView.set('files'); }}>
+        <button class="stab" class:active={sidebarTab === 'files'} onclick={() => { sidebarTab = 'files'; currentView.set('files'); }}>
           <Files size={13}/> Files
         </button>
       </div>

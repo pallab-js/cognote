@@ -125,7 +125,7 @@
   <div class="graph-header">
     <span class="graph-title">Knowledge Graph</span>
     <span class="graph-stats">{nodeCount} notes · {edgeCount} links</span>
-    <button class="icon-btn" title="Refresh" on:click={refresh}><RefreshCw size={13}/></button>
+    <button class="icon-btn" title="Refresh" onclick={refresh}><RefreshCw size={13}/></button>
   </div>
   {#if loading}
     <div class="loading">Loading graph...</div>

@@ -5,7 +5,7 @@
   import StarterKit from '@tiptap/starter-kit';
   import Link from '@tiptap/extension-link';
   import Mention from '@tiptap/extension-mention';
-  import { activeNoteId } from '$lib/stores/app';
+  import { activeNoteId, showToast } from '$lib/stores/app';
   import { wordCount, lastSaved } from '$lib/stores/notes';
   import { getNote, updateNote, listNotes, createNoteLink } from '$lib/commands';
   import type { Note } from '$lib/commands';
@@ -17,6 +17,9 @@
   let titleValue = '';
   let autosaveTimer: ReturnType<typeof setTimeout>;
   let loading = false;
+  let mentionPopup: HTMLElement | null = null;
+  let saveInProgress = false;
+  let pendingSave = false;
 
   // Load note when activeNoteId changes
   $: if ($activeNoteId) loadNote($activeNoteId);
@@ -52,12 +55,24 @@
 
   async function save() {
     if (!note || !editor) return;
+    if (saveInProgress) {
+      pendingSave = true;
+      return;
+    }
+    
+    saveInProgress = true;
     const content = JSON.stringify(editor.getJSON());
     try {
       await updateNote(note.id, titleValue || 'Untitled', content);
       lastSaved.set(new Date());
     } catch (e) {
       console.error('Autosave failed:', e);
+    } finally {
+      saveInProgress = false;
+      if (pendingSave) {
+        pendingSave = false;
+        scheduleAutosave();
+      }
     }
   }
 
@@ -89,35 +104,34 @@
           suggestion: {
             items: ({ query }) => getMentionItems(query),
             render: () => {
-              let popup: HTMLElement | null = null;
               let items: { id: string; label: string }[] = [];
               let selectedIndex = 0;
 
               return {
                 onStart(props: any) {
-                  popup = document.createElement('div');
-                  popup.className = 'mention-popup';
-                  document.body.appendChild(popup);
+                  mentionPopup = document.createElement('div');
+                  mentionPopup.className = 'mention-popup';
+                  document.body.appendChild(mentionPopup);
                   items = props.items;
                   selectedIndex = 0;
-                  renderPopup(popup, items, selectedIndex, props);
-                  positionPopup(popup, props.clientRect?.());
+                  renderPopup(mentionPopup, items, selectedIndex, props);
+                  positionPopup(mentionPopup, props.clientRect?.());
                 },
                 onUpdate(props: any) {
                   items = props.items;
                   selectedIndex = 0;
-                  if (popup) {
-                    renderPopup(popup, items, selectedIndex, props);
-                    positionPopup(popup, props.clientRect?.());
+                  if (mentionPopup) {
+                    renderPopup(mentionPopup, items, selectedIndex, props);
+                    positionPopup(mentionPopup, props.clientRect?.());
                   }
                 },
                 onKeyDown(props: any) {
-                  if (props.event.key === 'ArrowDown') { selectedIndex = (selectedIndex + 1) % items.length; if (popup) renderPopup(popup, items, selectedIndex, props); return true; }
-                  if (props.event.key === 'ArrowUp') { selectedIndex = (selectedIndex - 1 + items.length) % items.length; if (popup) renderPopup(popup, items, selectedIndex, props); return true; }
+                  if (props.event.key === 'ArrowDown') { selectedIndex = (selectedIndex + 1) % items.length; if (mentionPopup) renderPopup(mentionPopup, items, selectedIndex, props); return true; }
+                  if (props.event.key === 'ArrowUp') { selectedIndex = (selectedIndex - 1 + items.length) % items.length; if (mentionPopup) renderPopup(mentionPopup, items, selectedIndex, props); return true; }
                   if (props.event.key === 'Enter') { selectItem(items[selectedIndex], props); return true; }
                   return false;
                 },
-                onExit() { popup?.remove(); popup = null; },
+                onExit() { mentionPopup?.remove(); mentionPopup = null; },
               };
 
               function renderPopup(el: HTMLElement, its: any[], idx: number, props: any) {
@@ -140,7 +154,10 @@
                 if (!item) return;
                 props.command({ id: item.id, label: item.label });
                 // Create backlink
-                if ($activeNoteId) createNoteLink($activeNoteId, item.id).catch(() => {});
+                if ($activeNoteId) {
+                  createNoteLink($activeNoteId, item.id)
+                    .catch(() => showToast('Failed to create link', 'error'));
+                }
               }
             },
           },
@@ -157,13 +174,15 @@
     });
 
     // Handle wiki-link clicks
-    editorEl.addEventListener('click', (e) => {
-      const target = (e.target as HTMLElement).closest('.wiki-link') as HTMLElement | null;
-      if (target) {
-        const id = target.dataset.id;
-        if (id) activeNoteId.set(id);
-      }
-    });
+    if (editorEl) {
+      editorEl.addEventListener('click', (e) => {
+        const target = (e.target as HTMLElement).closest('.wiki-link') as HTMLElement | null;
+        if (target) {
+          const id = target.dataset.id;
+          if (id) activeNoteId.set(id);
+        }
+      });
+    }
 
     // Load initial note if already selected
     if ($activeNoteId) loadNote($activeNoteId);
@@ -171,10 +190,13 @@
 
   onDestroy(() => {
     clearTimeout(autosaveTimer);
+    mentionPopup?.remove();
     editor?.destroy();
   });
 
-  function cmd(command: () => boolean) { editor?.chain().focus().run(); command(); }
+  function cmd(command: (chain: ReturnType<Editor['chain']>) => ReturnType<Editor['chain']>) {
+    if (editor) command(editor.chain().focus()).run();
+  }
   $: isBold = editor?.isActive('bold') ?? false;
   $: isItalic = editor?.isActive('italic') ?? false;
   $: isH1 = editor?.isActive('heading', { level: 1 }) ?? false;
@@ -189,23 +211,23 @@
       <input
         class="note-title"
         bind:value={titleValue}
-        on:blur={saveTitleBlur}
-        on:input={scheduleAutosave}
+        onblur={saveTitleBlur}
+        oninput={scheduleAutosave}
         placeholder="Untitled"
       />
     </div>
 
     <!-- Toolbar -->
     <div class="toolbar">
-      <button class="tb-btn" class:active={isBold} title="Bold (Ctrl+B)" on:click={() => editor?.chain().focus().toggleBold().run()}><Bold size={13}/></button>
-      <button class="tb-btn" class:active={isItalic} title="Italic (Ctrl+I)" on:click={() => editor?.chain().focus().toggleItalic().run()}><Italic size={13}/></button>
+      <button class="tb-btn" class:active={isBold} title="Bold (Ctrl+B)" onclick={() => editor?.chain().focus().toggleBold().run()}><Bold size={13}/></button>
+      <button class="tb-btn" class:active={isItalic} title="Italic (Ctrl+I)" onclick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={13}/></button>
       <div class="tb-sep"></div>
-      <button class="tb-btn" class:active={isH1} title="Heading 1" on:click={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={13}/></button>
-      <button class="tb-btn" class:active={isH2} title="Heading 2" on:click={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={13}/></button>
+      <button class="tb-btn" class:active={isH1} title="Heading 1" onclick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={13}/></button>
+      <button class="tb-btn" class:active={isH2} title="Heading 2" onclick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={13}/></button>
       <div class="tb-sep"></div>
-      <button class="tb-btn" class:active={isCode} title="Code" on:click={() => editor?.chain().focus().toggleCode().run()}><Code size={13}/></button>
-      <button class="tb-btn" title="Bullet list" on:click={() => editor?.chain().focus().toggleBulletList().run()}><List size={13}/></button>
-      <button class="tb-btn" title="Ordered list" on:click={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={13}/></button>
+      <button class="tb-btn" class:active={isCode} title="Code" onclick={() => editor?.chain().focus().toggleCode().run()}><Code size={13}/></button>
+      <button class="tb-btn" title="Bullet list" onclick={() => editor?.chain().focus().toggleBulletList().run()}><List size={13}/></button>
+      <button class="tb-btn" title="Ordered list" onclick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={13}/></button>
       <div class="tb-sep"></div>
       <span class="tb-hint">Type <code>[[</code> to link a note</span>
     </div>

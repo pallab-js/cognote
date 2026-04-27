@@ -51,10 +51,10 @@
         class:active={isActive}
         role="button"
         tabindex="0"
-        on:click={() => { activeNotebookId.set(nb.id); activeTagId.set(null); }}
-        on:keydown={e => e.key === 'Enter' && activeNotebookId.set(nb.id)}
+        onclick={() => { activeNotebookId.set(nb.id); activeTagId.set(null); }}
+        onkeydown={e => e.key === 'Enter' && activeNotebookId.set(nb.id)}
       >
-        <button class="icon-btn" on:click|stopPropagation={() => expanded[nb.id] = !expanded[nb.id]}>
+        <button class="icon-btn" onclick={(e) => { e.stopPropagation(); expanded[nb.id] = !expanded[nb.id]; }}>
           {#if hasChildren}
             {#if expanded[nb.id]}<ChevronDown size={12}/>{:else}<ChevronRight size={12}/>{/if}
           {:else}
@@ -66,17 +66,17 @@
           <input
             class="edit-input"
             bind:value={editName}
-            on:blur={() => commitEdit(nb.id)}
-            on:keydown={e => e.key === 'Enter' && commitEdit(nb.id)}
+            onblur={() => commitEdit(nb.id)}
+            onkeydown={e => e.key === 'Enter' && commitEdit(nb.id)}
             autofocus
           />
         {:else}
           <span class="nb-name">{nb.name}</span>
         {/if}
         <div class="nb-actions">
-          <button class="icon-btn" title="Add child" on:click|stopPropagation={() => addNotebook(nb.id)}><Plus size={11}/></button>
-          <button class="icon-btn" title="Rename" on:click|stopPropagation={() => startEdit(nb)}><Pencil size={11}/></button>
-          <button class="icon-btn danger" title="Delete" on:click|stopPropagation={() => remove(nb.id)}><Trash2 size={11}/></button>
+          <button class="icon-btn" title="Add child" onclick={(e) => { e.stopPropagation(); addNotebook(nb.id); }}><Plus size={11}/></button>
+          <button class="icon-btn" title="Rename" onclick={(e) => { e.stopPropagation(); startEdit(nb); }}><Pencil size={11}/></button>
+          <button class="icon-btn danger" title="Delete" onclick={(e) => { e.stopPropagation(); remove(nb.id); }}><Trash2 size={11}/></button>
         </div>
       </div>
       {#if expanded[nb.id]}
@@ -87,7 +87,7 @@
 </ul>
 
 {#if depth === 0}
-  <button class="add-root-btn" on:click={() => addNotebook(null)}>
+  <button class="add-root-btn" onclick={() => addNotebook(null)}>
     <Plus size={12}/> New notebook
   </button>
 {/if}

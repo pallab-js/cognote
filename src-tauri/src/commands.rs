@@ -4,6 +4,20 @@ use crate::db::{Database, Note, Notebook, Tag, NoteLink, FileInfo, GraphData, Se
 use std::path::Path;
 use std::fs;
 
+const MAX_TITLE_LENGTH: usize = 500;
+const MAX_FILE_SIZE: i64 = 100 * 1024 * 1024; // 100MB
+
+fn validate_title(title: &str) -> Result<(), String> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return Err("Title cannot be empty".to_string());
+    }
+    if trimmed.len() > MAX_TITLE_LENGTH {
+        return Err(format!("Title cannot exceed {} characters", MAX_TITLE_LENGTH));
+    }
+    Ok(())
+}
+
 pub struct AppState {
     pub db: Mutex<Database>,
     pub vault_path: Mutex<String>,
@@ -43,6 +57,8 @@ pub fn get_notebook_tree(state: State<AppState>) -> Result<Vec<Notebook>, String
 
 #[tauri::command]
 pub fn create_note(state: State<AppState>, title: String, notebook_id: Option<String>) -> Result<Note, String> {
+    let title = title.trim().to_string();
+    validate_title(&title)?;
     state.db.lock().unwrap()
         .create_note(&title, notebook_id.as_deref())
         .map_err(|e| e.to_string())
@@ -63,6 +79,18 @@ pub fn update_note(
     content: Option<String>,
     notebook_id: Option<Option<String>>,
 ) -> Result<Note, String> {
+    if let Some(ref t) = title {
+        let t = t.trim().to_string();
+        validate_title(&t)?;
+        return state.db.lock().unwrap()
+            .update_note(
+                &id,
+                Some(&t),
+                content.as_deref(),
+                notebook_id.as_ref().map(|o| o.as_deref()),
+            )
+            .map_err(|e| e.to_string());
+    }
     state.db.lock().unwrap()
         .update_note(
             &id,
@@ -77,6 +105,16 @@ pub fn update_note(
 pub fn delete_note(state: State<AppState>, id: String) -> Result<(), String> {
     state.db.lock().unwrap()
         .delete_note(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_notes(state: State<AppState>, ids: Vec<String>) -> Result<usize, String> {
+    if ids.len() > 1000 {
+        return Err("Cannot delete more than 1000 notes at once".to_string());
+    }
+    state.db.lock().unwrap()
+        .delete_notes(&ids)
         .map_err(|e| e.to_string())
 }
 
@@ -152,6 +190,12 @@ pub fn import_file(state: State<AppState>, source_path: String, notebook_id: Opt
         return Err("Source path is not a file".into());
     }
 
+    // Check file size limit
+    let file_size = fs::metadata(&src).map_err(|e| e.to_string())?.len() as i64;
+    if file_size > MAX_FILE_SIZE {
+        return Err(format!("File exceeds maximum size of {} MB", MAX_FILE_SIZE / 1024 / 1024));
+    }
+
     let orig_name = src.file_name()
         .ok_or("Invalid file path")?
         .to_string_lossy()
@@ -163,6 +207,14 @@ pub fn import_file(state: State<AppState>, source_path: String, notebook_id: Opt
     let dest_dir = Path::new(&vault).join("files");
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(&file_name);
+    
+    // Verify destination stays within vault (prevent path traversal via symlinks)
+    let dest_canonical = fs::canonicalize(&dest_dir).map_err(|e| e.to_string())?;
+    let vault_canonical = fs::canonicalize(&vault).map_err(|e| e.to_string())?;
+    if !dest_canonical.starts_with(&vault_canonical) {
+        return Err("Invalid destination path".to_string());
+    }
+    
     fs::copy(&src, &dest).map_err(|e| e.to_string())?;
 
     let size = fs::metadata(&dest).ok().map(|m| m.len() as i64);
@@ -200,7 +252,17 @@ pub fn delete_file(state: State<AppState>, id: String) -> Result<(), String> {
     let path = db.get_file_path(&id).map_err(|e| e.to_string())?;
     let vault = state.vault_path.lock().unwrap().clone();
     let full_path = Path::new(&vault).join(&path);
-    let _ = fs::remove_file(full_path); // best-effort
+    
+    // Security: canonicalize and verify the resolved path stays within the vault
+    let canonical = fs::canonicalize(&full_path).map_err(|e| e.to_string())?;
+    let vault_canonical = fs::canonicalize(&vault).map_err(|e| e.to_string())?;
+    
+    // Verify path doesn't escape vault (handles symlinks, relative paths, etc.)
+    if !canonical.starts_with(&vault_canonical) {
+        return Err("Invalid file path: path escapes vault directory".to_string());
+    }
+    
+    let _ = fs::remove_file(canonical);
     db.delete_file(&id).map_err(|e| e.to_string())
 }
 

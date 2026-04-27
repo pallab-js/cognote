@@ -17,7 +17,7 @@
     <button
       class="tag-btn"
       class:active={$activeTagId === tag.id}
-      on:click={() => { activeTagId.set(tag.id); activeNotebookId.set(null); }}
+      onclick={() => { activeTagId.set(tag.id); activeNotebookId.set(null); }}
     >
       <TagIcon size={11}/> {tag.name}
     </button>

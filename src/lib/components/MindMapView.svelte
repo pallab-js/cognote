@@ -10,6 +10,7 @@
   $: if ($activeNoteId) renderMindMap($activeNoteId);
 
   async function renderMindMap(noteId: string) {
+    if (!svgEl) return;
     loading = true;
     error = '';
     try {

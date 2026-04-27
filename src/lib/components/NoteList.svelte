@@ -1,7 +1,7 @@
 <script lang="ts">
   import { FileText, Plus, Trash2, Pin } from 'lucide-svelte';
   import { notes, refreshNotes } from '$lib/stores/notes';
-  import { activeNoteId, activeNotebookId, activeTagId, searchQuery } from '$lib/stores/app';
+  import { activeNoteId, activeNotebookId, activeTagId, searchQuery, showToast } from '$lib/stores/app';
   import { createNote, deleteNote, searchNotes } from '$lib/commands';
   import type { Note, SearchResult } from '$lib/commands';
   import { onMount } from 'svelte';
@@ -33,9 +33,13 @@
   async function remove(id: string, e: MouseEvent) {
     e.stopPropagation();
     if (!confirm('Delete this note?')) return;
-    await deleteNote(id);
-    await refreshNotes($activeNotebookId ?? undefined);
-    if ($activeNoteId === id) activeNoteId.set(null);
+    try {
+      await deleteNote(id);
+      await refreshNotes($activeNotebookId ?? undefined);
+      if ($activeNoteId === id) activeNoteId.set(null);
+    } catch (err) {
+      showToast('Failed to delete note', 'error');
+    }
   }
 
   $: displayNotes = $searchQuery.trim()
@@ -46,7 +50,7 @@
 <div class="note-list">
   <div class="list-header">
     <span class="list-title">Notes</span>
-    <button class="icon-btn" title="New note" on:click={newNote}><Plus size={14}/></button>
+    <button class="icon-btn" title="New note" onclick={newNote}><Plus size={14}/></button>
   </div>
   {#each displayNotes as item (item.id)}
     <div
@@ -54,8 +58,8 @@
       class:active={$activeNoteId === item.id}
       role="button"
       tabindex="0"
-      on:click={() => activeNoteId.set(item.id)}
-      on:keydown={e => e.key === 'Enter' && activeNoteId.set(item.id)}
+      onclick={() => activeNoteId.set(item.id)}
+      onkeydown={e => e.key === 'Enter' && activeNoteId.set(item.id)}
     >
       <FileText size={13} color="var(--text-muted)"/>
       <div class="note-info">
@@ -64,7 +68,7 @@
           <span class="note-snippet">{@html item.snippet}</span>
         {/if}
       </div>
-      <button class="icon-btn danger" on:click={e => remove(item.id, e)}><Trash2 size={11}/></button>
+      <button class="icon-btn danger" onclick={e => { e.stopPropagation(); remove(item.id, e); }}><Trash2 size={11}/></button>
     </div>
   {/each}
   {#if displayNotes.length === 0}

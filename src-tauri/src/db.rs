@@ -213,6 +213,14 @@ impl Database {
             CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes BEGIN
                 INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES ('delete', old.rowid, old.title, COALESCE(old.content, ''));
             END;
+
+            CREATE INDEX IF NOT EXISTS idx_notes_notebook ON notes(notebook_id);
+            CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id);
+            CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(note_id);
+            CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(source_note_id);
+            CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
+            CREATE INDEX IF NOT EXISTS idx_files_notebook ON files(notebook_id);
         ")
     }
 
@@ -296,23 +304,31 @@ impl Database {
     }
 
     pub fn update_note(&self, id: &str, title: Option<&str>, content: Option<&str>, notebook_id: Option<Option<&str>>) -> Result<Note> {
-        if let Some(t) = title {
-            self.conn.execute(
-                "UPDATE notes SET title = ?1, updated_at = datetime('now') WHERE id = ?2",
-                params![t, id],
-            )?;
-        }
-        if let Some(c) = content {
-            self.conn.execute(
-                "UPDATE notes SET content = ?1, updated_at = datetime('now') WHERE id = ?2",
-                params![c, id],
-            )?;
-        }
-        if let Some(nb) = notebook_id {
-            self.conn.execute(
-                "UPDATE notes SET notebook_id = ?1, updated_at = datetime('now') WHERE id = ?2",
-                params![nb, id],
-            )?;
+        let has_title = title.is_some();
+        let has_content = content.is_some();
+        let has_notebook = notebook_id.is_some();
+
+        if has_title || has_content || has_notebook {
+            let mut query = "UPDATE notes SET updated_at = datetime('now')".to_string();
+            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(t) = title {
+                query.push_str(", title = ?");
+                params_vec.push(Box::new(t.to_string()));
+            }
+            if let Some(c) = content {
+                query.push_str(", content = ?");
+                params_vec.push(Box::new(c.to_string()));
+            }
+            if let Some(nb) = notebook_id {
+                query.push_str(", notebook_id = ?");
+                params_vec.push(Box::new(nb.map(String::from).unwrap_or_default()));
+            }
+            query.push_str(" WHERE id = ?");
+            params_vec.push(Box::new(id.to_string()));
+
+            let mut stmt = self.conn.prepare(&query)?;
+            stmt.execute(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())))?;
         }
         self.get_note(id)
     }
@@ -322,9 +338,23 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_notes(&self, ids: &[String]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
+        let query = format!(
+            "DELETE FROM notes WHERE id IN ({})",
+            placeholders.join(", ")
+        );
+        let params: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let count = self.conn.execute(&query, params.as_slice())?;
+        Ok(count)
+    }
+
     pub fn list_notes(&self, notebook_id: Option<&str>, tag_id: Option<&str>, search_query: Option<&str>) -> Result<Vec<Note>> {
         let mut query = "
-            SELECT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
+            SELECT DISTINCT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
             FROM notes n
         ".to_string();
         
@@ -357,9 +387,6 @@ impl Database {
         query.push_str(" ORDER BY n.is_pinned DESC, n.updated_at DESC");
 
         let mut stmt = self.conn.prepare(&query)?;
-        
-        // Convert Vec<Box<dyn ToSql>> to something we can pass to query_map
-        // This is a bit tricky with rusqlite. Using params_from_iter.
         let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), note_from_row)?;
         rows.collect()
     }
@@ -504,8 +531,36 @@ impl Database {
     // ── Search ────────────────────────────────────────────────────────────────
 
     pub fn search_notes(&self, query: &str) -> Result<Vec<SearchResult>> {
-        // Fix 2: wrap in double-quotes and escape internal quotes to prevent FTS5 injection
-        let safe_query = format!("\"{}\"", query.replace('"', "\"\""));
+        // Sanitize FTS5 query to prevent injection
+        // Escape special FTS5 operators and treat everything as literal phrase search
+        let mut sanitized = String::with_capacity(query.len());
+        for c in query.chars() {
+            match c {
+                '"' => sanitized.push_str("\""),
+                '*' => {}
+                '-' => {}
+                '(' => {}
+                ')' => {}
+                ':' => sanitized.push(' '),
+                '^' => {}
+                '~' => {}
+                '{' => {}
+                '}' => {}
+                '[' => {}
+                ']' => {}
+                _ => sanitized.push(c),
+            }
+        }
+
+        let safe_query = format!(
+            "\"{}\"*",
+            sanitized.trim().replace('"', "\"\"")
+        );
+
+        if safe_query.len() <= 2 {
+            return Ok(vec![]);
+        }
+
         let mut stmt = self.conn.prepare(
             "SELECT n.id, n.title, snippet(notes_fts, 1, '<mark>', '</mark>', '...', 20) \
              FROM notes_fts \
@@ -553,11 +608,10 @@ impl Database {
                 if let Ok(date) = chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d") {
                     if date == expected {
                         s += 1;
-                        expected = date - chrono::Duration::days(1);
-                    } else if date == today - chrono::Duration::days(1) && s == 0 {
-                        // If we haven't posted today, but posted yesterday, streak starts from yesterday
+                        expected = date - chrono::TimeDelta::days(1);
+                    } else if date == today - chrono::TimeDelta::days(1) && s == 0 {
                         s = 1;
-                        expected = date - chrono::Duration::days(1);
+                        expected = date - chrono::TimeDelta::days(1);
                     } else if date < expected {
                         break;
                     }

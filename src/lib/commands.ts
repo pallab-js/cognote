@@ -46,6 +46,8 @@ export const updateNote = (id: string, title?: string, content?: string, noteboo
   invoke<Note>('update_note', { id, title, content, notebookId: notebook_id });
 export const deleteNote = (id: string) =>
   invoke<void>('delete_note', { id });
+export const deleteNotes = (ids: string[]) =>
+  invoke<number>('delete_notes', { ids });
 export const listNotes = (notebook_id?: string, tag_id?: string, search_query?: string) =>
   invoke<Note[]>('list_notes', { notebookId: notebook_id, tagId: tag_id, searchQuery: search_query });
 

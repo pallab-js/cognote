@@ -1,0 +1,31 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Allow all custom app commands"
+commands.allow = [
+    "create_notebook",
+    "rename_notebook",
+    "delete_notebook",
+    "get_notebook_tree",
+    "create_note",
+    "get_note",
+    "update_note",
+    "delete_note",
+    "list_notes",
+    "add_tag",
+    "remove_tag",
+    "list_tags",
+    "create_note_link",
+    "remove_note_link",
+    "get_backlinks",
+    "get_knowledge_graph",
+    "get_mindmap_data",
+    "import_file",
+    "list_files",
+    "delete_file",
+    "open_file_external",
+    "search_notes",
+    "backup_vault",
+    "get_daily_stats",
+    "get_app_config",
+    "update_app_config"
+]

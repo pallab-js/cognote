@@ -32,7 +32,9 @@
     loading = true;
     try {
       for (const file of Array.from(items)) {
-        await importFile(file.name, $activeNotebookId ?? undefined);
+        // Tauri exposes the real filesystem path on the File object as `path`
+        const filePath = (file as any).path ?? file.name;
+        await importFile(filePath, $activeNotebookId ?? undefined);
       }
       await refresh();
     } catch (err) {
@@ -77,9 +79,9 @@
 
 <div
   class="file-browser"
-  on:dragover|preventDefault={() => isDragging = true}
-  on:dragleave={() => isDragging = false}
-  on:drop={handleDrop}
+  ondragover={(e) => { e.preventDefault(); isDragging = true; }}
+  ondragleave={() => isDragging = false}
+  ondrop={handleDrop}
   role="region"
   aria-label="File browser"
 >
@@ -88,8 +90,8 @@
     <span class="fb-title">Files</span>
     <span class="fb-count">{files.length}</span>
     <div class="fb-actions">
-      <button class="icon-btn" class:active={viewMode === 'grid'} on:click={() => viewMode = 'grid'} title="Grid view"><Grid size={13}/></button>
-      <button class="icon-btn" class:active={viewMode === 'list'} on:click={() => viewMode = 'list'} title="List view"><List size={13}/></button>
+      <button class="icon-btn" class:active={viewMode === 'grid'} onclick={() => viewMode = 'grid'} title="Grid view"><Grid size={13}/></button>
+      <button class="icon-btn" class:active={viewMode === 'list'} onclick={() => viewMode = 'list'} title="List view"><List size={13}/></button>
     </div>
   </div>
 
@@ -116,12 +118,12 @@
           class:selected={previewFile?.id === f.id}
           role="button"
           tabindex="0"
-          on:click={() => previewFile = previewFile?.id === f.id ? null : f}
-          on:keydown={e => e.key === 'Enter' && (previewFile = f)}
+          onclick={() => previewFile = previewFile?.id === f.id ? null : f}
+          onkeydown={e => e.key === 'Enter' && (previewFile = f)}
         >
           {#if isImage(f)}
             <div class="thumb-wrap">
-              <img src={convertFileSrc(f.path)} alt={f.name} class="thumb" on:error={e => (e.currentTarget as HTMLImageElement).style.display='none'}/>
+              <img src={convertFileSrc(f.path)} alt={f.name} class="thumb" onerror={e => (e.currentTarget as HTMLImageElement).style.display='none'}/>
             </div>
           {:else}
             <div class="file-icon-wrap">
@@ -131,8 +133,8 @@
           <span class="file-name" title={f.name}>{f.name}</span>
           <span class="file-size">{formatSize(f.size)}</span>
           <div class="card-actions">
-            <button class="icon-btn" title="Open externally" on:click|stopPropagation={() => openExternal(f.id)}><ExternalLink size={11}/></button>
-            <button class="icon-btn danger" title="Delete" on:click|stopPropagation={() => remove(f.id)}><Trash2 size={11}/></button>
+            <button class="icon-btn" title="Open externally" onclick={(e) => { e.stopPropagation(); openExternal(f.id); }}><ExternalLink size={11}/></button>
+            <button class="icon-btn danger" title="Delete" onclick={(e) => { e.stopPropagation(); remove(f.id); }}><Trash2 size={11}/></button>
           </div>
         </div>
       {/each}
@@ -145,14 +147,14 @@
           class:selected={previewFile?.id === f.id}
           role="button"
           tabindex="0"
-          on:click={() => previewFile = previewFile?.id === f.id ? null : f}
-          on:keydown={e => e.key === 'Enter' && (previewFile = f)}
+          onclick={() => previewFile = previewFile?.id === f.id ? null : f}
+          onkeydown={e => e.key === 'Enter' && (previewFile = f)}
         >
           <svelte:component this={getIcon(f)} size={14} color="var(--text-muted)"/>
           <span class="file-name-row">{f.name}</span>
           <span class="file-size-row">{formatSize(f.size)}</span>
-          <button class="icon-btn" title="Open" on:click|stopPropagation={() => openExternal(f.id)}><ExternalLink size={11}/></button>
-          <button class="icon-btn danger" title="Delete" on:click|stopPropagation={() => remove(f.id)}><Trash2 size={11}/></button>
+          <button class="icon-btn" title="Open" onclick={(e) => { e.stopPropagation(); openExternal(f.id); }}><ExternalLink size={11}/></button>
+          <button class="icon-btn danger" title="Delete" onclick={(e) => { e.stopPropagation(); remove(f.id); }}><Trash2 size={11}/></button>
         </div>
       {/each}
     </div>
@@ -163,7 +165,7 @@
     <div class="preview-panel">
       <div class="preview-header">
         <span class="preview-name">{previewFile.name}</span>
-        <button class="icon-btn" on:click={() => previewFile = null}>✕</button>
+        <button class="icon-btn" onclick={() => previewFile = null}>✕</button>
       </div>
       {#if isImage(previewFile)}
         <img src={convertFileSrc(previewFile.path)} alt={previewFile.name} class="preview-img"/>
@@ -173,7 +175,7 @@
         <div class="preview-fallback">
           <svelte:component this={getIcon(previewFile)} size={48} color="var(--text-muted)"/>
           <p>{previewFile.name}</p>
-          <button class="open-btn" on:click={() => openExternal(previewFile!.id)}>
+          <button class="open-btn" onclick={() => openExternal(previewFile!.id)}>
             <ExternalLink size={13}/> Open in system viewer
           </button>
         </div>
