@@ -68,7 +68,6 @@
             bind:value={editName}
             onblur={() => commitEdit(nb.id)}
             onkeydown={e => e.key === 'Enter' && commitEdit(nb.id)}
-            autofocus
           />
         {:else}
           <span class="nb-name">{nb.name}</span>

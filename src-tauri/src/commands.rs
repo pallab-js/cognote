@@ -18,19 +18,6 @@ fn validate_title(title: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn lock_db<'a>(state: &'a State<'a, AppState>) -> Result<std::sync::MutexGuard<'a, Database>, String> {
-    state.db.lock().map_err(|e| format!("DB lock poisoned: {}", e))
-}
-
-fn read_vault(state: &State<AppState>) -> Result<String, String> {
-    state.vault_path.read().map_err(|e| e.to_string()).map(|s| s.clone())
-}
-
-fn write_vault(state: &State<AppState>, path: &str) -> Result<(), String> {
-    *state.vault_path.write().map_err(|e| e.to_string())? = path.to_string();
-    Ok(())
-}
-
 pub struct AppState {
     pub db: Mutex<Database>,
     pub vault_path: RwLock<String>,
