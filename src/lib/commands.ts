@@ -26,6 +26,11 @@ export interface DailyStats {
   recent_days: { date: string; count: number }[];
 }
 export interface AppConfig { theme: string; vault_path: string | null; }
+export interface Task {
+  id: string; content: string; is_completed: boolean;
+  note_id: string | null; due_date: string | null;
+  created_at: string; updated_at: string;
+}
 
 // Notebooks
 export const createNotebook = (name: string, parent_id?: string) =>
@@ -94,3 +99,15 @@ export const getAppConfig = () =>
   invoke<AppConfig>('get_app_config');
 export const updateAppConfig = (theme?: string, vault_path?: string) =>
   invoke<void>('update_app_config', { theme, vaultPath: vault_path });
+
+// Tasks
+export const createTask = (content: string, note_id?: string, due_date?: string) =>
+  invoke<Task>('create_task', { content, noteId: note_id, dueDate: due_date });
+export const getTask = (id: string) =>
+  invoke<Task>('get_task', { id });
+export const updateTask = (id: string, content?: string, is_completed?: boolean, due_date?: string | null) =>
+  invoke<Task>('update_task', { id, content, isCompleted: is_completed, dueDate: due_date });
+export const deleteTask = (id: string) =>
+  invoke<void>('delete_task', { id });
+export const listTasks = (note_id?: string, completed?: boolean) =>
+  invoke<Task[]>('list_tasks', { noteId: note_id, completed });

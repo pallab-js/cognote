@@ -6,11 +6,20 @@
   let svgEl: SVGElement;
   let loading = false;
   let error = '';
+  let renderId = 0;
 
-  $: if ($activeNoteId) renderMindMap($activeNoteId);
+  $: {
+    if ($activeNoteId) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => renderMindMap($activeNoteId), 100);
+    }
+  }
+
+  let debounceTimer: ReturnType<typeof setTimeout>;
 
   async function renderMindMap(noteId: string) {
     if (!svgEl) return;
+    const currentId = ++renderId;
     loading = true;
     error = '';
     try {
@@ -18,6 +27,8 @@
         import('d3-hierarchy'),
         getMindmapData(noteId),
       ]);
+
+      if (currentId !== renderId) return; // Prevent race conditions
 
       const root = d3h.hierarchy(data);
       const nodeWidth = 140, nodeHeight = 36, hGap = 60, vGap = 12;
@@ -50,7 +61,7 @@
         const mx = (sx + tx) / 2;
         path.setAttribute('d', `M${sx},${sy} C${mx},${sy} ${mx},${ty} ${tx},${ty}`);
         path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', '#2e2e2e');
+        path.setAttribute('stroke', 'var(--border-prominent)');
         path.setAttribute('stroke-width', '1');
         svgEl.appendChild(path);
       });
@@ -64,8 +75,8 @@
         rect.setAttribute('width', String(nodeWidth));
         rect.setAttribute('height', String(nodeHeight));
         rect.setAttribute('rx', '6');
-        rect.setAttribute('fill', '#171717');
-        rect.setAttribute('stroke', node.depth === 0 ? '#3ecf8e' : '#2e2e2e');
+        rect.setAttribute('fill', 'var(--bg-primary)');
+        rect.setAttribute('stroke', node.depth === 0 ? 'var(--green-brand)' : 'var(--border-standard)');
         rect.setAttribute('stroke-width', node.depth === 0 ? '1.5' : '1');
         g.appendChild(rect);
 
@@ -73,9 +84,9 @@
         text.setAttribute('x', String(nodeWidth / 2));
         text.setAttribute('y', String(nodeHeight / 2 + 4));
         text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('fill', '#fafafa');
+        text.setAttribute('fill', 'var(--text-primary)');
         text.setAttribute('font-size', '12');
-        text.setAttribute('font-family', 'Circular, Helvetica Neue, Arial, sans-serif');
+        text.setAttribute('font-family', 'var(--font-sans)');
         const label = node.data.label.length > 16 ? node.data.label.slice(0, 15) + '…' : node.data.label;
         text.textContent = label;
         g.appendChild(text);
@@ -86,7 +97,7 @@
       error = 'Failed to load mind map';
       console.error(e);
     } finally {
-      loading = false;
+      if (currentId === renderId) loading = false;
     }
   }
 </script>

@@ -1,10 +1,11 @@
 use std::sync::{Mutex, RwLock};
 use tauri::State;
-use crate::db::{Database, Note, Notebook, Tag, NoteLink, FileInfo, GraphData, SearchResult, DailyStats, AppConfig};
+use crate::db::{Database, Note, Notebook, Tag, NoteLink, FileInfo, GraphData, SearchResult, DailyStats, AppConfig, Task};
 use std::path::Path;
 use std::fs;
 
 const MAX_TITLE_LENGTH: usize = 500;
+const MAX_TASK_LENGTH: usize = 2000;
 const MAX_FILE_SIZE: i64 = 100 * 1024 * 1024; // 100MB
 
 fn validate_title(title: &str) -> Result<(), String> {
@@ -14,6 +15,17 @@ fn validate_title(title: &str) -> Result<(), String> {
     }
     if trimmed.len() > MAX_TITLE_LENGTH {
         return Err(format!("Title cannot exceed {} characters", MAX_TITLE_LENGTH));
+    }
+    Ok(())
+}
+
+fn validate_task_content(content: &str) -> Result<(), String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err("Task content cannot be empty".to_string());
+    }
+    if trimmed.len() > MAX_TASK_LENGTH {
+        return Err(format!("Task content cannot exceed {} characters", MAX_TASK_LENGTH));
     }
     Ok(())
 }
@@ -231,6 +243,35 @@ pub fn import_file(state: State<AppState>, source_path: String, notebook_id: Opt
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn save_image(state: State<AppState>, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+    let vault = state.vault_path.read().unwrap().clone();
+    
+    // Extract only the base file name to prevent path traversal
+    let safe_base_name = Path::new(&filename)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image.png");
+        
+    let safe_filename = format!("{}_{}", uuid::Uuid::new_v4(), safe_base_name);
+    let dest_dir = Path::new(&vault).join("files");
+    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(&safe_filename);
+    
+    // Verify destination stays within vault
+    let dest_canonical = fs::canonicalize(&dest_dir).map_err(|e| e.to_string())?;
+    let vault_canonical = fs::canonicalize(&vault).map_err(|e| e.to_string())?;
+    if !dest_canonical.starts_with(&vault_canonical) {
+        return Err("Invalid destination path".to_string());
+    }
+    
+    fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    
+    // Return absolute path so frontend can use convertFileSrc
+    let absolute_path = dest.to_string_lossy().to_string();
+    Ok(absolute_path)
+}
+
 fn infer_mime(name: &str) -> Option<String> {
     let ext = Path::new(name).extension()?.to_str()?;
     Some(match ext.to_lowercase().as_str() {
@@ -414,4 +455,52 @@ pub fn update_app_config(state: State<AppState>, theme: Option<String>, vault_pa
     if let Some(t) = theme { cfg.theme = t; }
     if vault_path.is_some() { cfg.vault_path = vault_path; }
     db.update_config(&cfg).map_err(|e| e.to_string())
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn create_task(state: State<AppState>, content: String, note_id: Option<String>, due_date: Option<String>) -> Result<Task, String> {
+    let content = content.trim().to_string();
+    validate_task_content(&content)?;
+    state.db.lock().unwrap()
+        .create_task(&content, note_id.as_deref(), due_date.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_task(state: State<AppState>, id: String) -> Result<Task, String> {
+    state.db.lock().unwrap()
+        .get_task(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_task(
+    state: State<AppState>,
+    id: String,
+    content: Option<String>,
+    is_completed: Option<bool>,
+    due_date: Option<Option<String>>,
+) -> Result<Task, String> {
+    if let Some(ref c) = content {
+        validate_task_content(c)?;
+    }
+    state.db.lock().unwrap()
+        .update_task(&id, content.as_deref(), is_completed, due_date.as_ref().map(|o| o.as_deref()))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_task(state: State<AppState>, id: String) -> Result<(), String> {
+    state.db.lock().unwrap()
+        .delete_task(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_tasks(state: State<AppState>, note_id: Option<String>, completed: Option<bool>) -> Result<Vec<Task>, String> {
+    state.db.lock().unwrap()
+        .list_tasks(note_id.as_deref(), completed)
+        .map_err(|e| e.to_string())
 }

@@ -1,154 +1,418 @@
 <!-- ANCHOR: DASHBOARD_READY -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getDailyStats } from '$lib/commands';
-  import type { DailyStats } from '$lib/commands';
-  import { Flame, FileText, Calendar, TrendingUp } from 'lucide-svelte';
+  import { 
+    getDailyStats, 
+    listTasks, 
+    getNotebookTree, 
+    getKnowledgeGraph,
+    listNotes,
+    type DailyStats,
+    type Note,
+    type Task
+  } from '$lib/commands';
+  import { 
+    FileText, 
+    CheckSquare, 
+    Folder, 
+    Network, 
+    Clock, 
+    Star,
+    ArrowUpRight,
+    Calendar
+  } from 'lucide-svelte';
+  import { activeNoteId, currentView } from '$lib/stores/app';
 
   let stats: DailyStats | null = null;
+  let tasksDueToday: Task[] = [];
+  let totalProjects = 0;
+  let totalLinks = 0;
+  let recentNotes: Note[] = [];
+  let pinnedNotes: Note[] = [];
   let loading = true;
 
   onMount(async () => {
     try {
-      stats = await getDailyStats();
+      const [s, tasks, notebooks, graph, notes] = await Promise.all([
+        getDailyStats(),
+        listTasks(undefined, false),
+        getNotebookTree(),
+        getKnowledgeGraph(),
+        listNotes()
+      ]);
+      
+      stats = s;
+      tasksDueToday = tasks.filter(t => {
+        if (!t.due_date) return false;
+        const today = new Date().toISOString().split('T')[0];
+        return t.due_date === today;
+      });
+      totalProjects = notebooks.length;
+      totalLinks = graph.edges.length;
+      recentNotes = [...notes].sort((a, b) => 
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      ).slice(0, 5);
+      pinnedNotes = notes.filter(n => n.is_pinned).slice(0, 5);
+
     } catch (e) {
-      console.error('Failed to load stats:', e);
+      console.error('Failed to load dashboard data:', e);
     } finally {
       loading = false;
     }
   });
 
-  // Build last 30 days activity grid
-  $: activityDays = buildActivityGrid(stats?.recent_days ?? []);
-
-  function buildActivityGrid(days: { date: string; count: number }[]) {
-    const map = new Map(days.map(d => [d.date, d.count]));
-    const result = [];
-    const today = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      result.push({ date: key, count: map.get(key) ?? 0 });
-    }
-    return result;
+  function openNote(id: string) {
+    activeNoteId.set(id);
+    currentView.set('editor');
   }
 
-  function barHeight(count: number, max: number): number {
-    if (max === 0) return 0;
-    return Math.max(2, Math.round((count / max) * 48));
+  function formatDate(d: string) {
+    return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
-
-  $: maxCount = Math.max(...(stats?.recent_days.map(d => d.count) ?? [0]), 1);
 </script>
 
-<div class="dashboard">
-  <div class="dash-header">
-    <span class="dash-title">Dashboard</span>
-  </div>
+<div class="dashboard-container">
+  <header class="dash-header">
+    <div class="title-group">
+      <h1>Dashboard</h1>
+      <p class="subtitle">Welcome back. Here's your knowledge at a glance.</p>
+    </div>
+    <div class="date-chip">
+      <Calendar size={14} />
+      <span>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</span>
+    </div>
+  </header>
 
   {#if loading}
-    <div class="loading">Loading stats...</div>
-  {:else if stats}
-    <!-- Stat cards -->
-    <div class="stat-cards">
-      <div class="stat-card">
-        <div class="stat-icon"><FileText size={18} color="var(--green-brand)"/></div>
-        <div class="stat-body">
-          <span class="stat-value">{stats.total_notes}</span>
-          <span class="stat-label">Total Notes</span>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon"><Calendar size={18} color="var(--green-brand)"/></div>
-        <div class="stat-body">
-          <span class="stat-value">{stats.today_count}</span>
-          <span class="stat-label">Today</span>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon"><Flame size={18} color="var(--green-brand)"/></div>
-        <div class="stat-body">
-          <span class="stat-value">{stats.streak}</span>
-          <span class="stat-label">Day Streak</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Activity chart -->
-    <div class="section">
-      <div class="section-header">
-        <TrendingUp size={13} color="var(--text-muted)"/>
-        <span class="section-title">Activity — Last 30 Days</span>
-      </div>
-      <div class="bar-chart">
-        {#each activityDays as day}
-          <div class="bar-col" title="{day.date}: {day.count} notes">
-            <div
-              class="bar"
-              style="height: {barHeight(day.count, maxCount)}px; background: {day.count > 0 ? 'var(--green-brand)' : 'var(--border-standard)'}; opacity: {day.count > 0 ? 0.4 + (day.count / maxCount) * 0.6 : 1}"
-            ></div>
-          </div>
+    <div class="loading-state">
+      <div class="shimmer-grid">
+        {#each Array(6) as _}
+          <div class="shimmer-card"></div>
         {/each}
       </div>
-      <div class="chart-labels">
-        <span>30 days ago</span>
-        <span>Today</span>
-      </div>
     </div>
-
-    <!-- Recent days table -->
-    {#if stats.recent_days.length > 0}
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">Recent Activity</span>
+  {:else}
+    <div class="dash-grid">
+      <!-- 📘 Notes Card -->
+      <div class="card stat-card blue">
+        <div class="card-header">
+          <div class="icon-box"><FileText size={20} /></div>
+          <button class="arrow-btn" onclick={() => currentView.set('editor')}><ArrowUpRight size={14}/></button>
         </div>
-        <div class="activity-list">
-          {#each stats.recent_days.slice(0, 7) as day}
-            <div class="activity-row">
-              <span class="activity-date">{day.date}</span>
-              <div class="activity-bar-wrap">
-                <div class="activity-bar" style="width: {Math.round((day.count / maxCount) * 100)}%"></div>
-              </div>
-              <span class="activity-count">{day.count}</span>
-            </div>
+        <div class="card-body">
+          <span class="value">{stats?.total_notes || 0}</span>
+          <span class="label">Total Notes</span>
+        </div>
+        <div class="card-footer">
+          <span class="trend">+{stats?.today_count || 0} today</span>
+        </div>
+      </div>
+
+      <!-- ✅ Tasks Card -->
+      <div class="card stat-card green">
+        <div class="card-header">
+          <div class="icon-box"><CheckSquare size={20} /></div>
+          <button class="arrow-btn" onclick={() => currentView.set('tasks')}><ArrowUpRight size={14}/></button>
+        </div>
+        <div class="card-body">
+          <span class="value">{tasksDueToday.length}</span>
+          <span class="label">Tasks Due Today</span>
+        </div>
+        <div class="card-footer">
+          <span class="trend">{stats?.streak || 0} day streak</span>
+        </div>
+      </div>
+
+      <!-- 📂 Projects Card -->
+      <div class="card stat-card purple">
+        <div class="card-header">
+          <div class="icon-box"><Folder size={20} /></div>
+          <button class="arrow-btn" onclick={() => {}}><ArrowUpRight size={14}/></button>
+        </div>
+        <div class="card-body">
+          <span class="value">{totalProjects}</span>
+          <span class="label">Active Projects</span>
+        </div>
+        <div class="card-footer">
+          <span class="trend">Notebooks & Folders</span>
+        </div>
+      </div>
+
+      <!-- 🔗 Graph Card -->
+      <div class="card stat-card orange">
+        <div class="card-header">
+          <div class="icon-box"><Network size={20} /></div>
+          <button class="arrow-btn" onclick={() => currentView.set('graph')}><ArrowUpRight size={14}/></button>
+        </div>
+        <div class="card-body">
+          <span class="value">{totalLinks}</span>
+          <span class="label">Knowledge Links</span>
+        </div>
+        <div class="card-footer">
+          <span class="trend">Connected ideas</span>
+        </div>
+      </div>
+
+      <!-- 🕒 Recent Card -->
+      <div class="card list-card large">
+        <div class="card-header">
+          <div class="title-with-icon">
+            <Clock size={16} />
+            <span>Recent Edits</span>
+          </div>
+        </div>
+        <div class="list-body">
+          {#each recentNotes as note}
+            <button class="list-item" onclick={() => openNote(note.id)}>
+              <span class="item-title">{note.title || 'Untitled'}</span>
+              <span class="item-meta">{formatDate(note.updated_at)}</span>
+            </button>
+          {:else}
+            <div class="empty-list">No recent edits</div>
           {/each}
         </div>
       </div>
-    {/if}
+
+      <!-- ⭐ Pinned Card -->
+      <div class="card list-card large">
+        <div class="card-header">
+          <div class="title-with-icon">
+            <Star size={16} />
+            <span>Pinned Notes</span>
+          </div>
+        </div>
+        <div class="list-body">
+          {#each pinnedNotes as note}
+            <button class="list-item" onclick={() => openNote(note.id)}>
+              <span class="item-title">{note.title || 'Untitled'}</span>
+              <span class="item-meta">Pinned</span>
+            </button>
+          {:else}
+            <div class="empty-list">No pinned notes</div>
+          {/each}
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
 <style>
-  .dashboard { display: flex; flex-direction: column; height: 100%; overflow-y: auto; padding: 24px; gap: 24px; }
-  .dash-header { flex-shrink: 0; }
-  .dash-title { font-size: 11px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); }
-
-  .stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .stat-card {
-    background: var(--bg-button); border: 1px solid var(--border-standard);
-    border-radius: 8px; padding: 16px; display: flex; align-items: center; gap: 12px;
+  .dashboard-container {
+    padding: 40px;
+    height: 100%;
+    overflow-y: auto;
+    background: var(--bg-primary);
   }
-  .stat-icon { flex-shrink: 0; }
-  .stat-body { display: flex; flex-direction: column; gap: 2px; }
-  .stat-value { font-size: 28px; font-weight: 400; color: var(--text-primary); line-height: 1; }
-  .stat-label { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.8px; }
 
-  .section { background: var(--bg-button); border: 1px solid var(--border-standard); border-radius: 8px; padding: 16px; }
-  .section-header { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
-  .section-title { font-size: 11px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); }
+  .dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 40px;
+  }
 
-  .bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 56px; }
-  .bar-col { flex: 1; display: flex; align-items: flex-end; }
-  .bar { width: 100%; border-radius: 2px 2px 0 0; transition: height 0.2s; min-height: 2px; }
-  .chart-labels { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--text-muted); }
+  .title-group h1 {
+    font-size: 32px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+  }
 
-  .activity-list { display: flex; flex-direction: column; gap: 6px; }
-  .activity-row { display: flex; align-items: center; gap: 12px; }
-  .activity-date { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); width: 90px; flex-shrink: 0; }
-  .activity-bar-wrap { flex: 1; height: 6px; background: var(--border-subtle); border-radius: 3px; overflow: hidden; }
-  .activity-bar { height: 100%; background: var(--green-brand); border-radius: 3px; opacity: 0.7; }
-  .activity-count { font-size: 11px; color: var(--text-secondary); width: 24px; text-align: right; flex-shrink: 0; }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 15px;
+  }
 
-  .loading { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-muted); font-size: 13px; }
+  .date-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 100px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .dash-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+  }
+
+  .card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 20px;
+    padding: 24px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card:hover {
+    border-color: var(--border-prominent);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  }
+
+  .stat-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 180px;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+  }
+
+  .icon-box {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Color Themes */
+  .blue .icon-box { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+  .green .icon-box { background: rgba(62, 207, 142, 0.1); color: var(--green-brand); }
+  .purple .icon-box { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; }
+  .orange .icon-box { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+
+  .arrow-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    transition: color 0.2s;
+  }
+
+  .arrow-btn:hover { color: var(--text-primary); }
+
+  .card-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-card .value {
+    font-size: 36px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+
+  .stat-card .label {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .card-footer {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .trend {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+
+  .large {
+    grid-column: span 2;
+    min-height: 300px;
+  }
+
+  .title-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .list-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+  }
+
+  .list-item:hover {
+    border-color: var(--green-border);
+    background: rgba(62, 207, 142, 0.05);
+  }
+
+  .item-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .item-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .empty-list {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 13px;
+  }
+
+  .loading-state {
+    flex: 1;
+  }
+
+  .shimmer-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+  }
+
+  .shimmer-card {
+    height: 180px;
+    background: var(--bg-secondary);
+    border-radius: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shimmer-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent);
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
 </style>

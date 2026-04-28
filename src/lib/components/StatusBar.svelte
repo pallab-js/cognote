@@ -25,13 +25,14 @@
 <style>
   .status-bar {
     display: flex; align-items: center; gap: 8px;
-    padding: 0 16px; height: 28px;
+    padding: 0 16px; height: 32px;
     border-top: 1px solid var(--border-subtle);
-    background: var(--bg-button);
+    background: var(--bg-primary);
     font-size: 11px; color: var(--text-muted);
     font-family: var(--font-mono); flex-shrink: 0;
+    text-transform: uppercase; letter-spacing: 1.2px;
   }
   .spacer { flex: 1; }
-  .sep { color: var(--border-prominent); }
-  .local-badge { color: var(--green-brand); letter-spacing: 0.5px; }
+  .sep { color: var(--border-standard); margin: 0 4px; }
+  .local-badge { color: var(--green-brand); font-weight: 500; }
 </style>

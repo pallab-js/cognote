@@ -95,6 +95,17 @@ pub struct AppConfig {
     pub vault_path: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Task {
+    pub id: String,
+    pub content: String,
+    pub is_completed: bool,
+    pub note_id: Option<String>,
+    pub due_date: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // ── Row helpers ───────────────────────────────────────────────────────────────
 
 fn note_from_row(row: &rusqlite::Row) -> rusqlite::Result<Note> {
@@ -118,6 +129,18 @@ fn file_from_row(row: &rusqlite::Row) -> rusqlite::Result<FileInfo> {
         size: row.get(4)?,
         notebook_id: row.get(5)?,
         created_at: row.get(6)?,
+    })
+}
+
+fn task_from_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
+    Ok(Task {
+        id: row.get(0)?,
+        content: row.get(1)?,
+        is_completed: row.get::<_, i64>(2)? != 0,
+        note_id: row.get(3)?,
+        due_date: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
     })
 }
 
@@ -221,6 +244,18 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(source_note_id);
             CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
             CREATE INDEX IF NOT EXISTS idx_files_notebook ON files(notebook_id);
+
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                is_completed INTEGER DEFAULT 0,
+                note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
+                due_date TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_tasks_note ON tasks(note_id);
+            CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(is_completed);
         ")
     }
 
@@ -542,7 +577,7 @@ impl Database {
         }
 
         let mut stmt = self.conn.prepare(
-            "SELECT n.id, n.title, snippet(notes_fts, 1, '<mark>', '</mark>', '...', 20) \
+            "SELECT n.id, n.title, snippet(notes_fts, 1, '[[MARK]]', '[[/MARK]]', '...', 20) \
              FROM notes_fts \
              JOIN notes n ON notes_fts.rowid = n.rowid \
              WHERE notes_fts MATCH ?1 \
@@ -693,6 +728,87 @@ let mut sql = "
             )?;
         }
         Ok(())
+    }
+
+    // ── Tasks ─────────────────────────────────────────────────────────────────
+
+    pub fn create_task(&self, content: &str, note_id: Option<&str>, due_date: Option<&str>) -> Result<Task> {
+        let id = Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO tasks (id, content, note_id, due_date) VALUES (?1, ?2, ?3, ?4)",
+            params![id, content, note_id, due_date],
+        )?;
+        self.get_task(&id)
+    }
+
+    pub fn get_task(&self, id: &str) -> Result<Task> {
+        self.conn.query_row(
+            "SELECT id, content, is_completed, note_id, due_date, created_at, updated_at FROM tasks WHERE id = ?1",
+            params![id],
+            task_from_row,
+        )
+    }
+
+    pub fn update_task(&self, id: &str, content: Option<&str>, is_completed: Option<bool>, due_date: Option<Option<&str>>) -> Result<Task> {
+        let has_content = content.is_some();
+        let has_completed = is_completed.is_some();
+        let has_due_date = due_date.is_some();
+
+        if has_content || has_completed || has_due_date {
+            let mut query = "UPDATE tasks SET updated_at = datetime('now')".to_string();
+            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(c) = content {
+                query.push_str(", content = ?");
+                params_vec.push(Box::new(c.to_string()));
+            }
+            if let Some(ic) = is_completed {
+                query.push_str(", is_completed = ?");
+                params_vec.push(Box::new(if ic { 1i64 } else { 0i64 }));
+            }
+            if let Some(dd) = due_date {
+                query.push_str(", due_date = ?");
+                params_vec.push(Box::new(dd.map(String::from)));
+            }
+            query.push_str(" WHERE id = ?");
+            params_vec.push(Box::new(id.to_string()));
+
+            let mut stmt = self.conn.prepare(&query)?;
+            stmt.execute(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())))?;
+        }
+        self.get_task(id)
+    }
+
+    pub fn delete_task(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn list_tasks(&self, note_id: Option<&str>, completed: Option<bool>) -> Result<Vec<Task>> {
+        let mut query = "SELECT id, content, is_completed, note_id, due_date, created_at, updated_at FROM tasks".to_string();
+        let mut conditions = Vec::new();
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(nid) = note_id {
+            conditions.push("note_id = ?");
+            params_vec.push(Box::new(nid.to_string()));
+        }
+
+        if let Some(c) = completed {
+            conditions.push("is_completed = ?");
+            params_vec.push(Box::new(if c { 1i64 } else { 0i64 }));
+        }
+
+        if !conditions.is_empty() {
+            query.push_str(" WHERE ");
+            query.push_str(&conditions.join(" AND "));
+        }
+
+        query.push_str(" ORDER BY is_completed ASC, created_at DESC");
+
+        let mut stmt = self.conn.prepare(&query)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), task_from_row)?;
+        rows.collect()
     }
 }
 

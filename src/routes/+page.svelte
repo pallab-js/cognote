@@ -1,7 +1,7 @@
 <!-- ANCHOR: SHELL_READY -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Search, Network, Map, LayoutDashboard, Files, Sun, Moon, BookOpen, Tag } from 'lucide-svelte';
+  import { Search, Network, Map, LayoutDashboard, Files, Sun, Moon, BookOpen, Tag, CheckSquare } from 'lucide-svelte';
   import NotebookTree from '$lib/components/NotebookTree.svelte';
   import TagList from '$lib/components/TagList.svelte';
   import NoteList from '$lib/components/NoteList.svelte';
@@ -11,13 +11,16 @@
   import Dashboard from '$lib/components/Dashboard.svelte';
   import FileBrowser from '$lib/components/FileBrowser.svelte';
   import StatusBar from '$lib/components/StatusBar.svelte';
+  import TaskView from '$lib/components/TaskView.svelte';
+  import ResearchView from '$lib/components/ResearchView.svelte';
+  import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
+  import LayoutManager from '$lib/components/layout/LayoutManager.svelte';
   import { notebooks, refreshNotebooks } from '$lib/stores/notebooks';
-  import { currentView, searchQuery, appConfig, showToast } from '$lib/stores/app';
+  import { currentView, searchQuery, appConfig, showToast, activeNoteId, activeNotebookId, commandPaletteOpen } from '$lib/stores/app';
   import { updateAppConfig, createNote } from '$lib/commands';
-  import { activeNoteId, activeNotebookId } from '$lib/stores/app';
   import { refreshNotes } from '$lib/stores/notes';
 
-  let sidebarTab: 'notebooks' | 'tags' | 'files' = 'notebooks';
+  let sidebarTab: 'notebooks' | 'tags' | 'files' | 'tasks' = 'notebooks';
   let searchInput: HTMLInputElement;
 
   onMount(() => {
@@ -43,7 +46,7 @@
         break;
       case 'k':
         e.preventDefault();
-        searchInput?.focus();
+        commandPaletteOpen.update(v => !v);
         break;
       case 'g':
         e.preventDefault();
@@ -68,143 +71,59 @@
   }
 </script>
 
-<div class="app">
-  <!-- Top bar -->
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-dot">●</span>
-      <span class="brand-name">Cognote</span>
-    </div>
-    <div class="search-wrap">
-      <Search size={13} color="var(--text-muted)"/>
-      <input
-        class="search-input"
-        type="text"
-        placeholder="Search notes... (⌘K)"
-        bind:value={$searchQuery}
-        bind:this={searchInput}
-      />
-    </div>
-    <div class="topbar-actions">
-      <button class="icon-btn" title="Graph" class:active={$currentView === 'graph'} onclick={() => currentView.set('graph')}><Network size={15}/></button>
-      <button class="icon-btn" title="Mind Map" class:active={$currentView === 'mindmap'} onclick={() => currentView.set('mindmap')}><Map size={15}/></button>
-      <button class="icon-btn" title="Dashboard" class:active={$currentView === 'dashboard'} onclick={() => currentView.set('dashboard')}><LayoutDashboard size={15}/></button>
-      <button class="icon-btn" title="Toggle theme" onclick={toggleTheme}>
-        {#if $appConfig.theme === 'dark'}<Sun size={15}/>{:else}<Moon size={15}/>{/if}
-      </button>
-    </div>
-  </header>
+<CommandPalette />
 
-  <div class="body">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-tabs">
-        <button class="stab" class:active={sidebarTab === 'notebooks'} onclick={() => sidebarTab = 'notebooks'}>
-          <BookOpen size={13}/> Notebooks
-        </button>
-        <button class="stab" class:active={sidebarTab === 'tags'} onclick={() => sidebarTab = 'tags'}>
-          <Tag size={13}/> Tags
-        </button>
-        <button class="stab" class:active={sidebarTab === 'files'} onclick={() => { sidebarTab = 'files'; currentView.set('files'); }}>
-          <Files size={13}/> Files
-        </button>
-      </div>
-      <div class="sidebar-content">
-        {#if sidebarTab === 'notebooks'}
-          <NotebookTree items={$notebooks} />
-        {:else if sidebarTab === 'tags'}
-          <TagList />
-        {:else}
-          <FileBrowser />
-        {/if}
-      </div>
-    </aside>
-
-    <!-- Note list -->
+<LayoutManager>
+  <div class="view-container">
     {#if $currentView === 'editor'}
-      <div class="note-list-pane">
-        <NoteList />
+      <div class="editor-workspace">
+        <div class="note-list-pane">
+          <NoteList />
+        </div>
+        <div class="editor-pane">
+          <NoteEditor />
+        </div>
       </div>
+    {:else if $currentView === 'graph'}
+      <KnowledgeGraphView />
+    {:else if $currentView === 'mindmap'}
+      <MindMapView />
+    {:else if $currentView === 'dashboard'}
+      <Dashboard />
+    {:else if $currentView === 'files'}
+      <FileBrowser />
+    {:else if $currentView === 'tasks'}
+      <TaskView />
+    {:else if $currentView === 'research'}
+      <ResearchView />
     {/if}
-
-    <!-- Main view -->
-    <main class="main-view">
-      {#if $currentView === 'editor'}
-        <NoteEditor />
-      {:else if $currentView === 'graph'}
-        <KnowledgeGraphView />
-      {:else if $currentView === 'mindmap'}
-        <MindMapView />
-      {:else if $currentView === 'dashboard'}
-        <Dashboard />
-      {:else if $currentView === 'files'}
-        <FileBrowser />
-      {/if}
-    </main>
   </div>
-
-  <StatusBar />
-</div>
+</LayoutManager>
 
 <style>
-  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  .view-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
-  .topbar {
-    display: flex; align-items: center; gap: 12px;
-    padding: 0 16px; height: 44px; flex-shrink: 0;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-button);
+  .editor-workspace {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
   }
-  .brand { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-  .brand-dot { color: var(--green-brand); font-size: 10px; }
-  .brand-name { font-size: 14px; font-weight: 500; color: var(--text-primary); letter-spacing: -0.2px; }
-
-  .search-wrap {
-    flex: 1; display: flex; align-items: center; gap: 8px;
-    background: var(--bg-primary); border: 1px solid var(--border-standard);
-    border-radius: 6px; padding: 6px 10px; max-width: 400px;
-  }
-  .search-input {
-    flex: 1; background: none; border: none; outline: none;
-    color: var(--text-primary); font-size: 13px; font-family: var(--font-sans);
-  }
-  .search-input::placeholder { color: var(--text-muted); }
-  .search-wrap:focus-within { border-color: var(--green-brand); }
-
-  .topbar-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
-  .icon-btn {
-    background: none; border: 1px solid transparent; cursor: pointer;
-    color: var(--text-muted); padding: 6px; border-radius: 6px;
-    display: flex; align-items: center;
-  }
-  .icon-btn:hover { color: var(--text-primary); border-color: var(--border-prominent); }
-  .icon-btn.active { color: var(--green-brand); border-color: var(--green-border); }
-
-  .body { display: flex; flex: 1; overflow: hidden; }
-
-  .sidebar {
-    width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
-    border-right: 1px solid var(--border-subtle); overflow: hidden;
-  }
-  .sidebar-tabs {
-    display: flex; border-bottom: 1px solid var(--border-subtle);
-    flex-shrink: 0;
-  }
-  .stab {
-    flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
-    padding: 8px 4px; background: none; border: none; cursor: pointer;
-    color: var(--text-muted); font-size: 11px; font-weight: 500;
-    border-bottom: 2px solid transparent; transition: color 0.1s;
-  }
-  .stab:hover { color: var(--text-secondary); }
-  .stab.active { color: var(--text-primary); border-bottom-color: var(--green-brand); }
-  .sidebar-content { flex: 1; overflow-y: auto; padding: 8px; }
 
   .note-list-pane {
-    width: 240px; flex-shrink: 0;
+    width: 280px;
+    flex-shrink: 0;
     border-right: 1px solid var(--border-subtle);
-    overflow: hidden; display: flex; flex-direction: column;
+    background: var(--bg-primary);
   }
 
-  .main-view { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .editor-pane {
+    flex: 1;
+    overflow: hidden;
+    background: var(--bg-primary);
+  }
 </style>

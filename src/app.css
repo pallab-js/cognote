@@ -1,23 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500&family=Source+Code+Pro:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
+  /* Core Colors */
   --bg-primary: #171717;
-  --bg-button: #0f0f0f;
+  --bg-secondary: #0f0f0f;
+  
+  /* Neutral Scale */
   --border-subtle: #242424;
   --border-standard: #2e2e2e;
   --border-prominent: #363636;
-  --border-secondary: #393939;
+  --border-light: #393939;
+  
   --text-primary: #fafafa;
   --text-secondary: #b4b4b4;
   --text-muted: #898989;
+  --text-heavy: #4d4d4d;
+  
+  /* Brand Accent */
   --green-brand: #3ecf8e;
   --green-link: #00c573;
   --green-border: rgba(62, 207, 142, 0.3);
+  
+  /* Surface & Overlay */
   --surface-glass: rgba(41, 41, 41, 0.84);
-  --font-sans: 'Circular', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --font-mono: 'Source Code Pro', 'Office Code Pro', Menlo, monospace;
+  --surface-overlay: rgba(15, 15, 15, 0.6);
+  
+  /* Typography */
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'Source Code Pro', 'Fira Code', Consolas, Menlo, monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,10 +41,26 @@ html, body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  font-weight: 400;
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Typography Hierarchy */
+h1, h2, h3, h4, h5, h6 { font-weight: 400; color: var(--text-primary); }
+
+.display-hero { font-size: 72px; line-height: 1.00; letter-spacing: normal; }
+.section-heading { font-size: 36px; line-height: 1.25; }
+.card-title { font-size: 24px; line-height: 1.33; letter-spacing: -0.16px; }
+.sub-heading { font-size: 18px; line-height: 1.56; }
+.body-text { font-size: 16px; line-height: 1.50; }
+.caption { font-size: 14px; line-height: 1.43; }
+.small-text { font-size: 12px; line-height: 1.33; }
+.code-label { font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; }
+
+/* Interactive Elements */
+button, a { font-weight: 500; font-size: 14px; transition: all 0.15s ease; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -40,16 +70,15 @@ html, body {
 /* Focus */
 :focus-visible { outline: 1px solid var(--green-brand); outline-offset: 2px; }
 
-/* Light theme */
+/* Light theme (if needed, but design is dark-native) */
 body.light {
-  --bg-primary: #f5f5f5;
-  --bg-button: #e8e8e8;
-  --border-subtle: #d4d4d4;
-  --border-standard: #c8c8c8;
-  --border-prominent: #b0b0b0;
-  --border-secondary: #a0a0a0;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9f9f9;
+  --border-subtle: #e5e5e5;
+  --border-standard: #d4d4d4;
+  --border-prominent: #c0c0c0;
   --text-primary: #111111;
   --text-secondary: #444444;
-  --text-muted: #666666;
-  --surface-glass: rgba(240, 240, 240, 0.9);
+  --text-muted: #737373;
 }
+

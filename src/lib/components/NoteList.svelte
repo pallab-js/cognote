@@ -30,8 +30,8 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/&lt;mark&gt;/g, '<mark>')
-      .replace(/&lt;\/mark&gt;/g, '</mark>');
+      .replace(/\[\[MARK\]\]/g, '<mark>')
+      .replace(/\[\[\/MARK\]\]/g, '</mark>');
   }
 
   async function togglePin(id: string, pinned: boolean, e: MouseEvent) {
@@ -115,27 +115,51 @@
 </div>
 
 <style>
-  .note-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .note-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--bg-primary); }
   .list-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px; border-bottom: 1px solid var(--border-subtle);
+    padding: 12px 16px; border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
-  .list-title { font-size: 11px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); }
-  .note-item {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 10px 12px; border-bottom: 1px solid var(--border-subtle);
-    cursor: pointer; transition: background 0.1s;
+  .list-title {
+    font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--text-muted); font-weight: 400;
   }
-  .note-item:hover { background: var(--border-subtle); }
-  .note-item.active { background: var(--border-standard); border-left: 2px solid var(--green-brand); }
-  .note-info { flex: 1; min-width: 0; }
-  .note-title { display: block; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .note-snippet { display: block; font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
-  .note-snippet :global(mark) { background: rgba(62, 207, 142, 0.2); color: var(--green-brand); border-radius: 2px; }
-  .icon-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 2px; border-radius: 4px; display: flex; align-items: center; flex-shrink: 0; }
-  .icon-btn:hover { color: var(--text-primary); }
-  .icon-btn.danger:hover { color: #ff6b6b; }
+  .note-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer; transition: all 0.15s ease;
+    position: relative;
+  }
+  .note-item:hover { background: var(--bg-secondary); }
+  .note-item.active { background: var(--bg-secondary); }
+  .note-item.active::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 2px; background: var(--green-brand);
+  }
+  
+  .note-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .note-title {
+    display: block; font-size: 14px; font-weight: 400; color: var(--text-primary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    letter-spacing: -0.16px;
+  }
+  .note-snippet {
+    display: block; font-size: 12px; font-weight: 400; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    line-height: 1.4;
+  }
+  .note-snippet :global(mark) { background: rgba(62, 207, 142, 0.1); color: var(--green-brand); border-radius: 2px; }
+  
+  .icon-btn {
+    background: none; border: 1px solid transparent; cursor: pointer;
+    color: var(--text-muted); padding: 4px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.15s;
+  }
+  .icon-btn:hover { color: var(--text-primary); background: var(--border-subtle); }
+  .icon-btn.danger:hover { color: #ff6b6b; border-color: rgba(255, 107, 107, 0.2); }
   .icon-btn.pinned { color: var(--green-brand); }
-  .empty { padding: 16px 12px; font-size: 12px; color: var(--text-muted); text-align: center; }
+  
+  .empty { padding: 32px 16px; font-size: 13px; color: var(--text-muted); text-align: center; }
 </style>

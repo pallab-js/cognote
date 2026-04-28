@@ -1,5 +1,8 @@
 # Cognote
 
+> [!NOTE]
+> **Project Status**: v0.1.0 - Production Ready. Security audited and optimised for offline use.
+
 A privacy-first, offline desktop notebook with a connected knowledge graph.
 
 ## Features
@@ -14,6 +17,7 @@ A privacy-first, offline desktop notebook with a connected knowledge graph.
 - **Notebooks & tags** — Hierarchical folders + tag filtering
 - **Dark/light theme** — Supabase-inspired design system, persisted
 - **100% offline** — No cloud, no telemetry, no accounts. Data in local SQLite.
+- **Privacy & Security** — Audited for XSS and Path Traversal; sanitised inputs and secure local storage.
 
 ## Keyboard Shortcuts
 
