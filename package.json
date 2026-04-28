@@ -1,7 +1,21 @@
 {
   "name": "cognote",
   "version": "0.1.0",
-  "description": "",
+  "description": "Privacy-first desktop knowledge management system built with Rust and Svelte 5, featuring a connected knowledge graph and offline SQLite storage.",
+  "keywords": [
+    "tauri",
+    "rust",
+    "svelte",
+    "knowledge-management",
+    "pkm",
+    "offline-first",
+    "note-taking",
+    "knowledge-graph",
+    "sqlite",
+    "tiptap",
+    "desktop-app",
+    "privacy-focused"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite dev",
