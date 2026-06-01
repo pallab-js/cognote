@@ -1,5 +1,5 @@
-pub mod db;
 pub mod commands;
+pub mod db;
 
 use commands::AppState;
 use db::Database;
@@ -15,18 +15,24 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let window = app.get_webview_window("main").unwrap();
-                window_vibrancy::apply_vibrancy(&window, window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground, None, None)
-                    .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+                window_vibrancy::apply_vibrancy(
+                    &window,
+                    window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
+                    None,
+                    None,
+                )
+                .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
             }
 
-            let data_dir = app.path().app_data_dir()
+            let data_dir = app
+                .path()
+                .app_data_dir()
                 .expect("failed to get app data dir");
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("cognote.db");
             let vault_path = data_dir.to_string_lossy().to_string();
             let db_path_str = db_path.to_string_lossy();
-            let db = Database::open(&db_path_str)
-                .expect("failed to open database");
+            let db = Database::open(&db_path_str).expect("failed to open database");
             app.manage(AppState {
                 db: Mutex::new(db),
                 vault_path: RwLock::new(vault_path),

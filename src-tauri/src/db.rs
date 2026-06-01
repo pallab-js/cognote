@@ -1,5 +1,5 @@
 // ANCHOR: DB_MODULE_READY
-use rusqlite::{Connection, Result, params};
+use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -169,11 +169,9 @@ impl Database {
     }
 
     fn migrate(&self) -> Result<()> {
-        let current_version: i32 = self.conn.query_row(
-            "PRAGMA user_version",
-            [],
-            |row| row.get(0),
-        )?;
+        let current_version: i32 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
         if current_version < 1 {
             self.conn.execute_batch("
@@ -269,7 +267,9 @@ impl Database {
         }
 
         // Optimize search index on startup for peak FTS5 query performance
-        let _ = self.conn.execute("INSERT INTO notes_fts(notes_fts) VALUES('optimize')", []);
+        let _ = self
+            .conn
+            .execute("INSERT INTO notes_fts(notes_fts) VALUES('optimize')", []);
 
         Ok(())
     }
@@ -289,13 +289,15 @@ impl Database {
         self.conn.query_row(
             "SELECT id, name, parent_id, created_at, updated_at FROM notebooks WHERE id = ?1",
             params![id],
-            |row| Ok(Notebook {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                parent_id: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
-            }),
+            |row| {
+                Ok(Notebook {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    parent_id: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            },
         )
     }
 
@@ -308,21 +310,24 @@ impl Database {
     }
 
     pub fn delete_notebook(&self, id: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM notebooks WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM notebooks WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     pub fn get_notebook_tree(&self) -> Result<Vec<Notebook>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, parent_id, created_at, updated_at FROM notebooks ORDER BY name"
+            "SELECT id, name, parent_id, created_at, updated_at FROM notebooks ORDER BY name",
         )?;
-        let rows = stmt.query_map([], |row| Ok(Notebook {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            parent_id: row.get(2)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
-        }))?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Notebook {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                parent_id: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        })?;
         rows.collect()
     }
 
@@ -353,7 +358,14 @@ impl Database {
         )
     }
 
-    pub fn update_note(&self, id: &str, title: Option<&str>, content: Option<&str>, notebook_id: Option<Option<&str>>, is_pinned: Option<bool>) -> Result<Note> {
+    pub fn update_note(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        content: Option<&str>,
+        notebook_id: Option<Option<&str>>,
+        is_pinned: Option<bool>,
+    ) -> Result<Note> {
         let has_title = title.is_some();
         let has_content = content.is_some();
         let has_notebook = notebook_id.is_some();
@@ -383,13 +395,16 @@ impl Database {
             params_vec.push(Box::new(id.to_string()));
 
             let mut stmt = self.conn.prepare(&query)?;
-            stmt.execute(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())))?;
+            stmt.execute(rusqlite::params_from_iter(
+                params_vec.iter().map(|b| b.as_ref()),
+            ))?;
         }
         self.get_note(id)
     }
 
     pub fn delete_note(&self, id: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM notes WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM notes WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -402,24 +417,30 @@ impl Database {
             "DELETE FROM notes WHERE id IN ({})",
             placeholders.join(", ")
         );
-        let params: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let params: Vec<&dyn rusqlite::ToSql> =
+            ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
         let count = self.conn.execute(&query, params.as_slice())?;
         Ok(count)
     }
 
-    pub fn list_notes(&self, notebook_id: Option<&str>, tag_id: Option<&str>, search_query: Option<&str>) -> Result<Vec<Note>> {
+    pub fn list_notes(
+        &self,
+        notebook_id: Option<&str>,
+        tag_id: Option<&str>,
+        search_query: Option<&str>,
+    ) -> Result<Vec<Note>> {
         // Use FTS5 for search queries for performance
         if let Some(q) = search_query {
             if !q.trim().is_empty() {
                 return self.search_notes_inner(q, notebook_id, tag_id);
             }
         }
-        
+
         let mut query = "
             SELECT DISTINCT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
             FROM notes n
         ".to_string();
-        
+
         let mut conditions = Vec::new();
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -442,7 +463,10 @@ impl Database {
         query.push_str(" ORDER BY n.is_pinned DESC, n.updated_at DESC");
 
         let mut stmt = self.conn.prepare(&query)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), note_from_row)?;
+        let rows = stmt.query_map(
+            rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())),
+            note_from_row,
+        )?;
         rows.collect()
     }
 
@@ -457,7 +481,12 @@ impl Database {
         let tag: Tag = self.conn.query_row(
             "SELECT id, name FROM tags WHERE name = ?1",
             params![tag_name],
-            |row| Ok(Tag { id: row.get(0)?, name: row.get(1)? }),
+            |row| {
+                Ok(Tag {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                })
+            },
         )?;
         self.conn.execute(
             "INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?1, ?2)",
@@ -475,8 +504,15 @@ impl Database {
     }
 
     pub fn list_tags(&self) -> Result<Vec<Tag>> {
-        let mut stmt = self.conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
-        let rows = stmt.query_map([], |row| Ok(Tag { id: row.get(0)?, name: row.get(1)? }))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name FROM tags ORDER BY name")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        })?;
         rows.collect()
     }
 
@@ -485,15 +521,25 @@ impl Database {
             "SELECT t.id, t.name FROM tags t 
              JOIN note_tags nt ON t.id = nt.tag_id 
              WHERE nt.note_id = ?1 
-             ORDER BY t.name"
+             ORDER BY t.name",
         )?;
-        let rows = stmt.query_map(params![note_id], |row| Ok(Tag { id: row.get(0)?, name: row.get(1)? }))?;
+        let rows = stmt.query_map(params![note_id], |row| {
+            Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        })?;
         rows.collect()
     }
 
     // ── Note Links ────────────────────────────────────────────────────────────
 
-    pub fn create_note_link(&self, source_id: &str, target_id: &str, context: Option<&str>) -> Result<()> {
+    pub fn create_note_link(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        context: Option<&str>,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO note_links (source_note_id, target_note_id, context) VALUES (?1, ?2, ?3)",
             params![source_id, target_id, context],
@@ -514,41 +560,58 @@ impl Database {
             "SELECT nl.source_note_id, nl.target_note_id, nl.context, n.title 
              FROM note_links nl
              JOIN notes n ON nl.source_note_id = n.id
-             WHERE nl.target_note_id = ?1"
+             WHERE nl.target_note_id = ?1",
         )?;
-        let rows = stmt.query_map(params![note_id], |row| Ok(NoteLink {
-            source_note_id: row.get(0)?,
-            target_note_id: row.get(1)?,
-            context: row.get(2)?,
-            source_title: Some(row.get(3)?),
-        }))?;
+        let rows = stmt.query_map(params![note_id], |row| {
+            Ok(NoteLink {
+                source_note_id: row.get(0)?,
+                target_note_id: row.get(1)?,
+                context: row.get(2)?,
+                source_title: Some(row.get(3)?),
+            })
+        })?;
         rows.collect()
     }
 
     pub fn get_knowledge_graph(&self) -> Result<GraphData> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, title, notebook_id FROM notes"
-        )?;
-        let nodes: Vec<GraphNode> = stmt.query_map([], |row| Ok(GraphNode {
-            id: row.get(0)?,
-            label: row.get(1)?,
-            notebook_id: row.get(2)?,
-        }))?.collect::<Result<_>>()?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, title, notebook_id FROM notes")?;
+        let nodes: Vec<GraphNode> = stmt
+            .query_map([], |row| {
+                Ok(GraphNode {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    notebook_id: row.get(2)?,
+                })
+            })?
+            .collect::<Result<_>>()?;
 
-        let mut stmt = self.conn.prepare(
-            "SELECT source_note_id, target_note_id FROM note_links"
-        )?;
-        let edges: Vec<GraphEdge> = stmt.query_map([], |row| Ok(GraphEdge {
-            source: row.get(0)?,
-            target: row.get(1)?,
-        }))?.collect::<Result<_>>()?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT source_note_id, target_note_id FROM note_links")?;
+        let edges: Vec<GraphEdge> = stmt
+            .query_map([], |row| {
+                Ok(GraphEdge {
+                    source: row.get(0)?,
+                    target: row.get(1)?,
+                })
+            })?
+            .collect::<Result<_>>()?;
 
         Ok(GraphData { nodes, edges })
     }
 
     // ── Files ─────────────────────────────────────────────────────────────────
 
-    pub fn create_file(&self, name: &str, path: &str, mime_type: Option<&str>, size: Option<i64>, notebook_id: Option<&str>) -> Result<FileInfo> {
+    pub fn create_file(
+        &self,
+        name: &str,
+        path: &str,
+        mime_type: Option<&str>,
+        size: Option<i64>,
+        notebook_id: Option<&str>,
+    ) -> Result<FileInfo> {
         let id = Uuid::new_v4().to_string();
         self.conn.execute(
             "INSERT INTO files (id, name, path, mime_type, size, notebook_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -576,26 +639,30 @@ impl Database {
     pub fn list_files(&self, notebook_id: Option<&str>) -> Result<Vec<FileInfo>> {
         if let Some(nb) = notebook_id {
             let mut stmt = self.conn.prepare("SELECT id, name, path, mime_type, size, notebook_id, created_at FROM files WHERE notebook_id = ?1 ORDER BY created_at DESC")?;
-            let rows = stmt.query_map(params![nb], file_from_row)?.collect::<Result<Vec<_>>>()?;
+            let rows = stmt
+                .query_map(params![nb], file_from_row)?
+                .collect::<Result<Vec<_>>>()?;
             Ok(rows)
         } else {
             let mut stmt = self.conn.prepare("SELECT id, name, path, mime_type, size, notebook_id, created_at FROM files ORDER BY created_at DESC")?;
-            let rows = stmt.query_map([], file_from_row)?.collect::<Result<Vec<_>>>()?;
+            let rows = stmt
+                .query_map([], file_from_row)?
+                .collect::<Result<Vec<_>>>()?;
             Ok(rows)
         }
     }
 
     pub fn delete_file(&self, id: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM files WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM files WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     pub fn get_file_path(&self, id: &str) -> Result<String> {
-        self.conn.query_row(
-            "SELECT path FROM files WHERE id = ?1",
-            params![id],
-            |row| row.get(0),
-        )
+        self.conn
+            .query_row("SELECT path FROM files WHERE id = ?1", params![id], |row| {
+                row.get(0)
+            })
     }
 
     // ── Search ────────────────────────────────────────────────────────────────
@@ -611,33 +678,37 @@ impl Database {
              FROM notes_fts \
              JOIN notes n ON notes_fts.rowid = n.rowid \
              WHERE notes_fts MATCH ?1 \
-             ORDER BY rank LIMIT 50"
+             ORDER BY rank LIMIT 50",
         )?;
-        let rows = stmt.query_map(params![safe_query], |row| Ok(SearchResult {
-            id: row.get(0)?,
-            title: row.get(1)?,
-            snippet: row.get(2)?,
-        }))?;
+        let rows = stmt.query_map(params![safe_query], |row| {
+            Ok(SearchResult {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                snippet: row.get(2)?,
+            })
+        })?;
         rows.collect()
     }
-    
+
     fn sanitize_fts_query(&self, query: &str) -> String {
         let mut sanitized = String::with_capacity(query.len());
         for c in query.chars() {
             match c {
-                '"' => sanitized.push_str("\""),
+                '"' => sanitized.push('"'),
                 '*' | '-' | '(' | ')' | '^' | '~' | '{' | '}' | '[' | ']' => {}
                 ':' => sanitized.push(' '),
                 _ => sanitized.push(c),
             }
         }
-        format!(
-            "\"{}\"*",
-            sanitized.trim().replace('"', "\"\"")
-        )
+        format!("\"{}\"*", sanitized.trim().replace('"', "\"\""))
     }
-    
-    fn search_notes_inner(&self, query: &str, notebook_id: Option<&str>, tag_id: Option<&str>) -> Result<Vec<Note>> {
+
+    fn search_notes_inner(
+        &self,
+        query: &str,
+        notebook_id: Option<&str>,
+        tag_id: Option<&str>,
+    ) -> Result<Vec<Note>> {
         let safe_query = self.sanitize_fts_query(query);
         if safe_query.len() <= 2 {
             return Ok(vec![]);
@@ -648,16 +719,16 @@ impl Database {
             FROM notes_fts 
             JOIN notes n ON notes_fts.rowid = n.rowid
         ".to_string();
-        
+
         let mut conditions = vec!["notes_fts MATCH ?1".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(safe_query)];
-        
+
         if let Some(tid) = tag_id {
             sql.push_str(" JOIN note_tags nt ON n.id = nt.note_id");
             conditions.push("nt.tag_id = ?".to_string());
             params_vec.push(Box::new(tid.to_string()));
         }
-        
+
         if let Some(nb) = notebook_id {
             conditions.push("n.notebook_id = ?".to_string());
             params_vec.push(Box::new(nb.to_string()));
@@ -668,7 +739,10 @@ impl Database {
         sql.push_str(" ORDER BY n.is_pinned DESC, n.updated_at DESC");
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), note_from_row)?;
+        let rows = stmt.query_map(
+            rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())),
+            note_from_row,
+        )?;
         rows.collect()
     }
 
@@ -681,11 +755,9 @@ impl Database {
             |row| row.get(0),
         )?;
 
-        let total_notes: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM notes",
-            [],
-            |row| row.get(0),
-        )?;
+        let total_notes: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))?;
 
         // Streak: consecutive days with at least one note (create OR update)
         let streak: i64 = {
@@ -694,16 +766,17 @@ impl Database {
                     SELECT created_at as d FROM notes
                     UNION ALL
                     SELECT updated_at as d FROM notes
-                ) ORDER BY d DESC"
+                ) ORDER BY d DESC",
             )?;
-            let dates: Vec<String> = stmt.query_map([], |row| row.get(0))?
+            let dates: Vec<String> = stmt
+                .query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())
                 .collect();
-            
+
             let today = chrono::Local::now().date_naive();
             let mut s = 0i64;
             let mut expected = today;
-            
+
             for d in dates {
                 if let Ok(date) = chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d") {
                     if date == expected {
@@ -723,28 +796,43 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT date(created_at) as d, COUNT(*) as c FROM notes GROUP BY d ORDER BY d DESC LIMIT 30"
         )?;
-        let recent_days: Vec<DayCount> = stmt.query_map([], |row| Ok(DayCount {
-            date: row.get(0)?,
-            count: row.get(1)?,
-        }))?.collect::<Result<_>>()?;
+        let recent_days: Vec<DayCount> = stmt
+            .query_map([], |row| {
+                Ok(DayCount {
+                    date: row.get(0)?,
+                    count: row.get(1)?,
+                })
+            })?
+            .collect::<Result<_>>()?;
 
-        Ok(DailyStats { today_count, streak, total_notes, recent_days })
+        Ok(DailyStats {
+            today_count,
+            streak,
+            total_notes,
+            recent_days,
+        })
     }
 
     // ── Config ────────────────────────────────────────────────────────────────
 
     pub fn get_config(&self) -> Result<AppConfig> {
-        let theme = self.conn.query_row(
-            "SELECT value FROM app_config WHERE key = 'theme'",
-            [],
-            |row| row.get(0),
-        ).unwrap_or_else(|_| "dark".to_string());
+        let theme = self
+            .conn
+            .query_row(
+                "SELECT value FROM app_config WHERE key = 'theme'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "dark".to_string());
 
-        let vault_path = self.conn.query_row(
-            "SELECT value FROM app_config WHERE key = 'vault_path'",
-            [],
-            |row| row.get(0),
-        ).ok();
+        let vault_path = self
+            .conn
+            .query_row(
+                "SELECT value FROM app_config WHERE key = 'vault_path'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
 
         Ok(AppConfig { theme, vault_path })
     }
@@ -765,7 +853,12 @@ impl Database {
 
     // ── Tasks ─────────────────────────────────────────────────────────────────
 
-    pub fn create_task(&self, content: &str, note_id: Option<&str>, due_date: Option<&str>) -> Result<Task> {
+    pub fn create_task(
+        &self,
+        content: &str,
+        note_id: Option<&str>,
+        due_date: Option<&str>,
+    ) -> Result<Task> {
         let id = Uuid::new_v4().to_string();
         self.conn.execute(
             "INSERT INTO tasks (id, content, note_id, due_date) VALUES (?1, ?2, ?3, ?4)",
@@ -782,7 +875,13 @@ impl Database {
         )
     }
 
-    pub fn update_task(&self, id: &str, content: Option<&str>, is_completed: Option<bool>, due_date: Option<Option<&str>>) -> Result<Task> {
+    pub fn update_task(
+        &self,
+        id: &str,
+        content: Option<&str>,
+        is_completed: Option<bool>,
+        due_date: Option<Option<&str>>,
+    ) -> Result<Task> {
         let has_content = content.is_some();
         let has_completed = is_completed.is_some();
         let has_due_date = due_date.is_some();
@@ -807,13 +906,16 @@ impl Database {
             params_vec.push(Box::new(id.to_string()));
 
             let mut stmt = self.conn.prepare(&query)?;
-            stmt.execute(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())))?;
+            stmt.execute(rusqlite::params_from_iter(
+                params_vec.iter().map(|b| b.as_ref()),
+            ))?;
         }
         self.get_task(id)
     }
 
     pub fn delete_task(&self, id: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -840,7 +942,10 @@ impl Database {
         query.push_str(" ORDER BY is_completed ASC, created_at DESC");
 
         let mut stmt = self.conn.prepare(&query)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), task_from_row)?;
+        let rows = stmt.query_map(
+            rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())),
+            task_from_row,
+        )?;
         rows.collect()
     }
 
@@ -891,7 +996,15 @@ mod tests {
         assert_eq!(note.title, "Hello");
         assert!(!note.is_pinned);
 
-        let updated = db.update_note(&note.id, Some("Hello World"), Some("{\"type\":\"doc\"}"), None, None).unwrap();
+        let updated = db
+            .update_note(
+                &note.id,
+                Some("Hello World"),
+                Some("{\"type\":\"doc\"}"),
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(updated.title, "Hello World");
         assert_eq!(updated.content, Some("{\"type\":\"doc\"}".to_string()));
 
@@ -954,7 +1067,15 @@ mod tests {
     #[test]
     fn test_files() {
         let db = db();
-        let f = db.create_file("doc.pdf", "/vault/doc.pdf", Some("application/pdf"), Some(1024), None).unwrap();
+        let f = db
+            .create_file(
+                "doc.pdf",
+                "/vault/doc.pdf",
+                Some("application/pdf"),
+                Some(1024),
+                None,
+            )
+            .unwrap();
         assert_eq!(f.name, "doc.pdf");
 
         let files = db.list_files(None).unwrap();
@@ -969,9 +1090,11 @@ mod tests {
     fn test_fts_search() {
         let db = db();
         let n1 = db.create_note("Rust Programming", None).unwrap();
-        db.update_note(&n1.id, None, Some("Rust is a systems language"), None, None).unwrap();
+        db.update_note(&n1.id, None, Some("Rust is a systems language"), None, None)
+            .unwrap();
         let n2 = db.create_note("Python Basics", None).unwrap();
-        db.update_note(&n2.id, None, Some("Python is easy"), None, None).unwrap();
+        db.update_note(&n2.id, None, Some("Python is easy"), None, None)
+            .unwrap();
 
         let results = db.search_notes("Rust").unwrap();
         assert_eq!(results.len(), 1);
@@ -984,7 +1107,11 @@ mod tests {
         let cfg = db.get_config().unwrap();
         assert_eq!(cfg.theme, "dark");
 
-        db.update_config(&AppConfig { theme: "light".to_string(), vault_path: Some("/vault".to_string()) }).unwrap();
+        db.update_config(&AppConfig {
+            theme: "light".to_string(),
+            vault_path: Some("/vault".to_string()),
+        })
+        .unwrap();
         let cfg = db.get_config().unwrap();
         assert_eq!(cfg.theme, "light");
         assert_eq!(cfg.vault_path, Some("/vault".to_string()));
@@ -1014,41 +1141,72 @@ mod tests {
         // Search for "Work" in nb1 should return "Work Task"
         // Wait, list_notes current implementation:
         // if let Some(q) = search_query { ... returns matches from all notebooks ... }
-        
+
         let _results = db.list_notes(Some(&nb1.id), None, Some("Work")).unwrap();
         // If current implementation is bugged (ignoring notebook_id), this will fail or return unexpected results
         // Actually, "Work" search query will match "Work Task" in nb1.
         // But if it ignores nb1 and searches globally, and I added "Work Task" in nb2 as well...
-        
+
         db.create_note("Work from home", Some(&nb2.id)).unwrap();
         let results = db.list_notes(Some(&nb1.id), None, Some("Work")).unwrap();
-        
+
         // Expected: only 1 note ("Work Task")
         // Actual (buggy): 2 notes ("Work Task" and "Work from home")
-        assert_eq!(results.len(), 1, "Should only return matches within the specified notebook");
+        assert_eq!(
+            results.len(),
+            1,
+            "Should only return matches within the specified notebook"
+        );
     }
 
     #[test]
     fn test_streak_logic() {
         let db = db();
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let yesterday = (chrono::Local::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
-        
+        let yesterday = (chrono::Local::now() - chrono::Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string();
+
         // Scenario 1: Note today
-        db.conn.execute("INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)", params![Uuid::new_v4().to_string(), "Today", today, today]).unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                params![Uuid::new_v4().to_string(), "Today", today, today],
+            )
+            .unwrap();
         let stats = db.get_daily_stats().unwrap();
         assert_eq!(stats.streak, 1);
 
         // Scenario 2: Note today and yesterday
-        db.conn.execute("INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday, yesterday]).unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    "Yesterday",
+                    yesterday,
+                    yesterday
+                ],
+            )
+            .unwrap();
         let stats = db.get_daily_stats().unwrap();
         assert_eq!(stats.streak, 2);
 
         // Reset
         db.conn.execute("DELETE FROM notes", []).unwrap();
-        
+
         // Scenario 3: Note only yesterday (streak should be 1)
-        db.conn.execute("INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday, yesterday]).unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    "Yesterday",
+                    yesterday,
+                    yesterday
+                ],
+            )
+            .unwrap();
         let stats = db.get_daily_stats().unwrap();
         assert_eq!(stats.streak, 1);
     }

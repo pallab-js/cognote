@@ -1,28 +1,52 @@
-use std::sync::{Mutex, RwLock};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, RwLock};
 use tauri::Manager;
 use uuid::Uuid;
 
 use cognote_lib::commands::{
-    // Notebooks
-    create_notebook, rename_notebook, delete_notebook, get_notebook_tree,
-    // Notes
-    create_note, get_note, update_note, delete_note, delete_notes, list_notes, search_notes,
     // Tags
-    add_tag, remove_tag, list_tags, get_note_tags,
-    // Links
-    create_note_link, remove_note_link, get_backlinks, get_knowledge_graph,
-    // Files
-    import_file, save_image, list_files, delete_file,
-    // Mind Map
-    get_mindmap_data,
+    add_tag,
     // Backup
     backup_vault,
-    // Stats & Config
-    get_daily_stats, get_app_config, update_app_config,
+    // Notes
+    create_note,
+    // Links
+    create_note_link,
+    // Notebooks
+    create_notebook,
     // Tasks
-    create_task, get_task, update_task, delete_task, list_tasks,
+    create_task,
+    delete_file,
+    delete_note,
+    delete_notebook,
+    delete_notes,
+    delete_task,
+    get_app_config,
+    get_backlinks,
+    // Stats & Config
+    get_daily_stats,
+    get_knowledge_graph,
+    // Mind Map
+    get_mindmap_data,
+    get_note,
+    get_note_tags,
+    get_notebook_tree,
+    get_task,
+    // Files
+    import_file,
+    list_files,
+    list_notes,
+    list_tags,
+    list_tasks,
+    remove_note_link,
+    remove_tag,
+    rename_notebook,
+    save_image,
+    search_notes,
+    update_app_config,
+    update_note,
+    update_task,
     // State
     AppState,
 };
@@ -35,7 +59,8 @@ struct TestEnv {
 
 impl TestEnv {
     fn new() -> Self {
-        let temp_dir = std::env::temp_dir().join(format!("cognote-integration-test-{}", Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cognote-integration-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&temp_dir).unwrap();
 
         let db = Database::open_in_memory().unwrap();
@@ -78,7 +103,12 @@ fn test_notebook_integration() {
     assert_eq!(parent.name, "Work");
     assert!(parent.parent_id.is_none());
 
-    let child = create_notebook(state.clone(), "Projects".to_string(), Some(parent.id.clone())).unwrap();
+    let child = create_notebook(
+        state.clone(),
+        "Projects".to_string(),
+        Some(parent.id.clone()),
+    )
+    .unwrap();
     assert_eq!(child.name, "Projects");
     assert_eq!(child.parent_id, Some(parent.id.clone()));
 
@@ -176,7 +206,10 @@ fn test_batch_delete_notes_integration() {
     let too_many_ids = vec!["id".to_string(); 1001];
     let err = delete_notes(state.clone(), too_many_ids);
     assert!(err.is_err());
-    assert_eq!(err.unwrap_err(), "Cannot delete more than 1000 notes at once");
+    assert_eq!(
+        err.unwrap_err(),
+        "Cannot delete more than 1000 notes at once"
+    );
 }
 
 // ── 3. Tags Integration Tests ──────────────────────────────────────────────────
@@ -219,14 +252,23 @@ fn test_links_and_graph_integration() {
     let b = create_note(state.clone(), "Note B".to_string(), None).unwrap();
 
     // Create Link
-    create_note_link(state.clone(), a.id.clone(), b.id.clone(), Some("Reference in paragraph".to_string())).unwrap();
+    create_note_link(
+        state.clone(),
+        a.id.clone(),
+        b.id.clone(),
+        Some("Reference in paragraph".to_string()),
+    )
+    .unwrap();
 
     // Check Backlinks
     let backlinks = get_backlinks(state.clone(), b.id.clone()).unwrap();
     assert_eq!(backlinks.len(), 1);
     assert_eq!(backlinks[0].source_note_id, a.id);
     assert_eq!(backlinks[0].source_title, Some("Note A".to_string()));
-    assert_eq!(backlinks[0].context, Some("Reference in paragraph".to_string()));
+    assert_eq!(
+        backlinks[0].context,
+        Some("Reference in paragraph".to_string())
+    );
 
     // Check Knowledge Graph
     let graph = get_knowledge_graph(state.clone()).unwrap();
@@ -255,7 +297,12 @@ fn test_files_integration_and_security() {
     fs::write(&source_file, "## File Content").unwrap();
 
     // 2. Import file via command
-    let info = import_file(state.clone(), source_file.to_string_lossy().to_string(), None).unwrap();
+    let info = import_file(
+        state.clone(),
+        source_file.to_string_lossy().to_string(),
+        None,
+    )
+    .unwrap();
     assert_eq!(info.name, "test_doc.md");
     assert_eq!(info.mime_type, Some("text/markdown".to_string()));
 
@@ -295,7 +342,7 @@ fn test_save_image_security_integration() {
     // Save image with path traversal attempt in filename
     let traversal_filename = "../../../unsafe_image.png".to_string();
     let saved_path_str = save_image(state.clone(), traversal_filename, bytes).unwrap();
-    
+
     // The command should strip the directory traversal and save it safely in vault/files/
     let saved_path = Path::new(&saved_path_str);
     assert!(saved_path.starts_with(&env.vault_path));
@@ -350,13 +397,14 @@ fn test_mindmap_generation() {
         Some(tiptap_content.to_string()),
         None,
         None,
-    ).unwrap();
+    )
+    .unwrap();
 
     let mindmap = get_mindmap_data(state.clone(), note.id).unwrap();
     // Root level represents the note title
     assert_eq!(mindmap.label, "Root Node");
     assert_eq!(mindmap.children.len(), 1);
-    
+
     // Level 1: Main Topic
     let main_topic = &mindmap.children[0];
     assert_eq!(main_topic.label, "Main Topic");
@@ -434,7 +482,12 @@ fn test_config_integration() {
     assert_eq!(cfg_initial.theme, "dark"); // default
 
     // Update config
-    update_app_config(state.clone(), Some("light".to_string()), Some("/new/vault/path".to_string())).unwrap();
+    update_app_config(
+        state.clone(),
+        Some("light".to_string()),
+        Some("/new/vault/path".to_string()),
+    )
+    .unwrap();
 
     // Verify
     let cfg_updated = get_app_config(state.clone()).unwrap();
@@ -452,7 +505,13 @@ fn test_tasks_integration() {
     let note = create_note(state.clone(), "Task Note".to_string(), None).unwrap();
 
     // Create Tasks
-    let t1 = create_task(state.clone(), "Read books".to_string(), Some(note.id.clone()), Some("2026-06-15".to_string())).unwrap();
+    let t1 = create_task(
+        state.clone(),
+        "Read books".to_string(),
+        Some(note.id.clone()),
+        Some("2026-06-15".to_string()),
+    )
+    .unwrap();
     assert_eq!(t1.content, "Read books");
     assert_eq!(t1.due_date, Some("2026-06-15".to_string()));
     assert!(!t1.is_completed);
