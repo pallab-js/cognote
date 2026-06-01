@@ -153,6 +153,50 @@ fn task_from_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
 
 // ── Database ──────────────────────────────────────────────────────────────────
 
+fn migrate_plaintext_to_encrypted(
+    db_path: &str,
+    master_key: &str,
+) -> std::result::Result<(), rusqlite::Error> {
+    // 1. Open the plaintext database
+    let plaintext_conn = Connection::open(db_path)?;
+
+    // Check if it's actually a valid plaintext SQLite database by running a query
+    let is_plaintext = plaintext_conn
+        .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+        .is_ok();
+
+    if !is_plaintext {
+        // Not a plaintext database or totally corrupted, nothing we can do here
+        return Ok(());
+    }
+
+    // 2. Create a temporary path for the encrypted version
+    let temp_encrypted_path = format!("{}.tmp_enc", db_path);
+    if std::path::Path::new(&temp_encrypted_path).exists() {
+        let _ = std::fs::remove_file(&temp_encrypted_path);
+    }
+
+    // 3. Attach the temporary encrypted database and run sqlcipher_export
+    let attach_sql = format!(
+        "ATTACH DATABASE '{}' AS encrypted KEY '{}';",
+        temp_encrypted_path.replace("'", "''"),
+        master_key.replace("'", "''")
+    );
+
+    plaintext_conn.execute_batch(&attach_sql)?;
+    plaintext_conn.execute_batch("SELECT sqlcipher_export('encrypted');")?;
+    plaintext_conn.execute_batch("DETACH DATABASE encrypted;")?;
+
+    // 4. Drop the plaintext connection so the file is not locked
+    drop(plaintext_conn);
+
+    // 5. Replace the plaintext database file with the encrypted one
+    std::fs::rename(&temp_encrypted_path, db_path)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+
+    Ok(())
+}
+
 pub struct Database {
     pub conn: Connection,
     pub master_key: String,
@@ -160,10 +204,43 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: &str, master_key: &str) -> Result<Self> {
-        let conn = Connection::open(path)?;
-        conn.pragma_update(None, "key", master_key)?;
-        conn.pragma_update(None, "cipher_page_size", "4096")?;
-        conn.pragma_update(None, "kdf_iter", "256000")?;
+        // Try opening with key first
+        let conn_result = Connection::open(path).and_then(|conn| {
+            conn.pragma_update(None, "key", master_key)?;
+            conn.pragma_update(None, "cipher_page_size", "4096")?;
+            conn.pragma_update(None, "kdf_iter", "256000")?;
+            // Test connection by running a simple query
+            conn.query_row("SELECT 1", [], |_| Ok(()))?;
+            Ok(conn)
+        });
+
+        let conn = match conn_result {
+            Ok(c) => c,
+            Err(e) => {
+                // If it fails, check if the error is NotADatabase
+                let is_not_a_db = match e {
+                    rusqlite::Error::SqliteFailure(err, _) => {
+                        err.code == rusqlite::ErrorCode::NotADatabase
+                    }
+                    _ => false,
+                };
+
+                if is_not_a_db {
+                    // Attempt plaintext migration
+                    if let Err(migration_err) = migrate_plaintext_to_encrypted(path, master_key) {
+                        eprintln!("Plaintext database migration failed: {}", migration_err);
+                    }
+                }
+
+                // Try opening again after migration (or let it fail normally if it was corrupted)
+                let c = Connection::open(path)?;
+                c.pragma_update(None, "key", master_key)?;
+                c.pragma_update(None, "cipher_page_size", "4096")?;
+                c.pragma_update(None, "kdf_iter", "256000")?;
+                c
+            }
+        };
+
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
         let db = Database {
             conn,
