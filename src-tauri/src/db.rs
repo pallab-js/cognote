@@ -26,6 +26,12 @@ pub struct Note {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NoteTitle {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Tag {
     pub id: String,
     pub name: String,
@@ -149,21 +155,35 @@ fn task_from_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
 
 pub struct Database {
     pub conn: Connection,
+    pub master_key: String,
 }
 
 impl Database {
-    pub fn open(path: &str) -> Result<Self> {
+    pub fn open(path: &str, master_key: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
+        conn.pragma_update(None, "key", master_key)?;
+        conn.pragma_update(None, "cipher_page_size", "4096")?;
+        conn.pragma_update(None, "kdf_iter", "256000")?;
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
-        let db = Database { conn };
+        let db = Database {
+            conn,
+            master_key: master_key.to_string(),
+        };
         db.migrate()?;
         Ok(db)
     }
 
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
+        let key = "test-memory-key";
+        conn.pragma_update(None, "key", key)?;
+        conn.pragma_update(None, "cipher_page_size", "4096")?;
+        conn.pragma_update(None, "kdf_iter", "256000")?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Database { conn };
+        let db = Database {
+            conn,
+            master_key: key.to_string(),
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -262,6 +282,15 @@ impl Database {
                 );
                 CREATE INDEX IF NOT EXISTS idx_tasks_note ON tasks(note_id);
                 CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(is_completed);
+
+                CREATE TABLE IF NOT EXISTS ai_audit_log (
+                    id TEXT PRIMARY KEY,
+                    timestamp INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    prompt_hash TEXT NOT NULL,
+                    output_hash TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ai_audit_log_timestamp ON ai_audit_log(timestamp DESC);
             ")?;
             self.conn.execute("PRAGMA user_version = 1", [])?;
         }
@@ -470,6 +499,17 @@ impl Database {
         rows.collect()
     }
 
+    pub fn list_note_titles(&self) -> Result<Vec<NoteTitle>> {
+        let mut stmt = self.conn.prepare("SELECT id, title FROM notes ORDER BY title")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(NoteTitle {
+                id: row.get(0)?,
+                title: row.get(1)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     // ── Tags ──────────────────────────────────────────────────────────────────
 
     pub fn add_tag(&self, note_id: &str, tag_name: &str) -> Result<Tag> {
@@ -667,20 +707,23 @@ impl Database {
 
     // ── Search ────────────────────────────────────────────────────────────────
 
-    pub fn search_notes(&self, query: &str) -> Result<Vec<SearchResult>> {
+    pub fn search_notes(&self, query: &str, limit: Option<u32>, offset: Option<u32>) -> Result<Vec<SearchResult>> {
         let safe_query = self.sanitize_fts_query(query);
         if safe_query.len() <= 2 {
             return Ok(vec![]);
         }
+
+        let l = limit.unwrap_or(50);
+        let o = offset.unwrap_or(0);
 
         let mut stmt = self.conn.prepare(
             "SELECT n.id, n.title, snippet(notes_fts, 1, '[[MARK]]', '[[/MARK]]', '...', 20) \
              FROM notes_fts \
              JOIN notes n ON notes_fts.rowid = n.rowid \
              WHERE notes_fts MATCH ?1 \
-             ORDER BY rank LIMIT 50",
+             ORDER BY rank LIMIT ?2 OFFSET ?3",
         )?;
-        let rows = stmt.query_map(params![safe_query], |row| {
+        let rows = stmt.query_map(params![safe_query, l, o], |row| {
             Ok(SearchResult {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -949,8 +992,20 @@ impl Database {
         rows.collect()
     }
 
+    pub fn append_audit_log(&self, timestamp: i64, action: &str, prompt_hash: &str, output_hash: &str) -> Result<()> {
+        let id = Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO ai_audit_log (id, timestamp, action, prompt_hash, output_hash) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, timestamp, action, prompt_hash, output_hash],
+        )?;
+        Ok(())
+    }
+
     pub fn backup_to(&self, dst_path: &str) -> Result<()> {
         let mut dst = Connection::open(dst_path)?;
+        dst.pragma_update(None, "key", &self.master_key)?;
+        dst.pragma_update(None, "cipher_page_size", "4096")?;
+        dst.pragma_update(None, "kdf_iter", "256000")?;
         let backup = rusqlite::backup::Backup::new(&self.conn, &mut dst)?;
         backup.step(-1)?;
         Ok(())
@@ -1096,7 +1151,7 @@ mod tests {
         db.update_note(&n2.id, None, Some("Python is easy"), None, None)
             .unwrap();
 
-        let results = db.search_notes("Rust").unwrap();
+        let results = db.search_notes("Rust", None, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Rust Programming");
     }

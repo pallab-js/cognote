@@ -172,7 +172,7 @@ fn test_note_integration() {
     let list = list_notes(state.clone(), None, None, None).unwrap();
     assert_eq!(list.len(), 1);
 
-    let search_results = search_notes(state.clone(), "Important".to_string()).unwrap();
+    let search_results = search_notes(state.clone(), "Important".to_string(), None, None).unwrap();
     assert_eq!(search_results.len(), 1);
     assert_eq!(search_results[0].title, "Updated Title");
 

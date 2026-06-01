@@ -32,7 +32,17 @@ pub fn run() {
             let db_path = data_dir.join("cognote.db");
             let vault_path = data_dir.to_string_lossy().to_string();
             let db_path_str = db_path.to_string_lossy();
-            let db = Database::open(&db_path_str).expect("failed to open database");
+            
+            let key_path = data_dir.join("vault.key");
+            let master_key = if key_path.exists() {
+                std::fs::read_to_string(&key_path).expect("failed to read vault key")
+            } else {
+                let key = format!("{}-{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+                std::fs::write(&key_path, &key).expect("failed to write vault key");
+                key
+            };
+
+            let db = Database::open(&db_path_str, &master_key).expect("failed to open database");
             app.manage(AppState {
                 db: Mutex::new(db),
                 vault_path: RwLock::new(vault_path),
@@ -50,6 +60,7 @@ pub fn run() {
             commands::delete_note,
             commands::delete_notes,
             commands::list_notes,
+            commands::list_note_titles,
             commands::add_tag,
             commands::remove_tag,
             commands::list_tags,
@@ -74,6 +85,7 @@ pub fn run() {
             commands::update_task,
             commands::delete_task,
             commands::list_tasks,
+            commands::append_audit_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

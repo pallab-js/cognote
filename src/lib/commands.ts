@@ -21,6 +21,7 @@ export interface GraphData {
   edges: { source: string; target: string }[];
 }
 export interface SearchResult { id: string; title: string; snippet: string; }
+export interface NoteTitle { id: string; title: string; }
 export interface DailyStats {
   today_count: number; streak: number; total_notes: number;
   recent_days: { date: string; count: number }[];
@@ -55,6 +56,8 @@ export const deleteNotes = (ids: string[]) =>
   invoke<number>('delete_notes', { ids });
 export const listNotes = (notebook_id?: string, search_query?: string, tag_id?: string) =>
   invoke<Note[]>('list_notes', { notebookId: notebook_id, tagId: tag_id, searchQuery: search_query });
+export const listNoteTitles = () =>
+  invoke<NoteTitle[]>('list_note_titles');
 
 // Tags
 export const addTag = (note_id: string, tag_name: string) =>
@@ -91,8 +94,8 @@ export const openFileExternal = (id: string) =>
   invoke<void>('open_file_external', { id });
 
 // Search & Stats
-export const searchNotes = (query: string) =>
-  invoke<SearchResult[]>('search_notes', { query });
+export const searchNotes = (query: string, limit?: number, offset?: number) =>
+  invoke<SearchResult[]>('search_notes', { query, limit, offset });
 export const backupVault = () =>
   invoke<string>('backup_vault');
 export const getDailyStats = () =>

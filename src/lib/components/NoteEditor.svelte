@@ -17,7 +17,7 @@
   import 'katex/dist/katex.min.css';
   import { activeNoteId, activeNotebookId, showToast } from '$lib/stores/app';
   import { wordCount, lastSaved, refreshNotes } from '$lib/stores/notes';
-  import { getNote, updateNote, listNotes, createNoteLink, deleteNote } from '$lib/commands';
+  import { getNote, updateNote, listNoteTitles, createNoteLink, deleteNote } from '$lib/commands';
   import type { Note } from '$lib/commands';
   import { Bold, Italic, Heading1, Heading2, Code, Link as LinkIcon, List, ListOrdered, CheckSquare, Table as TableIcon, Image as ImageIcon, Highlighter, Sigma, Trash2 } from 'lucide-svelte';
   import { invoke, convertFileSrc } from '@tauri-apps/api/core';
@@ -100,7 +100,7 @@
   async function getMentionItems(query: string) {
     if (cacheStale) {
       try {
-        const notes = await listNotes();
+        const notes = await listNoteTitles();
         noteCache = notes.map(n => ({ id: n.id, title: n.title }));
         cacheStale = false;
         setTimeout(() => { cacheStale = true; }, 30_000);

@@ -1,5 +1,5 @@
 use crate::db::{
-    AppConfig, DailyStats, Database, FileInfo, GraphData, Note, NoteLink, Notebook, SearchResult,
+    AppConfig, DailyStats, Database, FileInfo, GraphData, Note, NoteLink, NoteTitle, Notebook, SearchResult,
     Tag, Task,
 };
 use std::fs;
@@ -200,6 +200,16 @@ pub fn list_notes(
             tag_id.as_deref(),
             search_query.as_deref(),
         )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_note_titles(state: State<AppState>) -> Result<Vec<NoteTitle>, String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .list_note_titles()
         .map_err(|e| e.to_string())
 }
 
@@ -612,12 +622,17 @@ pub fn backup_vault(state: State<AppState>) -> Result<String, String> {
 // ── Search ────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn search_notes(state: State<AppState>, query: String) -> Result<Vec<SearchResult>, String> {
+pub fn search_notes(
+    state: State<AppState>,
+    query: String,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Vec<SearchResult>, String> {
     state
         .db
         .lock()
         .unwrap()
-        .search_notes(&query)
+        .search_notes(&query, limit, offset)
         .map_err(|e| e.to_string())
 }
 
@@ -736,5 +751,21 @@ pub fn list_tasks(
         .lock()
         .unwrap()
         .list_tasks(note_id.as_deref(), completed)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn append_audit_log(
+    state: State<AppState>,
+    timestamp: i64,
+    action: String,
+    prompt_hash: String,
+    output_hash: String,
+) -> Result<(), String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .append_audit_log(timestamp, &action, &prompt_hash, &output_hash)
         .map_err(|e| e.to_string())
 }
