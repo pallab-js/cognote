@@ -32,7 +32,7 @@ pub fn run() {
             let db_path = data_dir.join("cognote.db");
             let vault_path = data_dir.to_string_lossy().to_string();
             let db_path_str = db_path.to_string_lossy();
-            
+
             let key_path = data_dir.join("vault.key");
             let master_key = if key_path.exists() {
                 std::fs::read_to_string(&key_path).expect("failed to read vault key")

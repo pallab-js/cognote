@@ -500,7 +500,9 @@ impl Database {
     }
 
     pub fn list_note_titles(&self) -> Result<Vec<NoteTitle>> {
-        let mut stmt = self.conn.prepare("SELECT id, title FROM notes ORDER BY title")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, title FROM notes ORDER BY title")?;
         let rows = stmt.query_map([], |row| {
             Ok(NoteTitle {
                 id: row.get(0)?,
@@ -707,7 +709,12 @@ impl Database {
 
     // ── Search ────────────────────────────────────────────────────────────────
 
-    pub fn search_notes(&self, query: &str, limit: Option<u32>, offset: Option<u32>) -> Result<Vec<SearchResult>> {
+    pub fn search_notes(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<Vec<SearchResult>> {
         let safe_query = self.sanitize_fts_query(query);
         if safe_query.len() <= 2 {
             return Ok(vec![]);
@@ -992,7 +999,13 @@ impl Database {
         rows.collect()
     }
 
-    pub fn append_audit_log(&self, timestamp: i64, action: &str, prompt_hash: &str, output_hash: &str) -> Result<()> {
+    pub fn append_audit_log(
+        &self,
+        timestamp: i64,
+        action: &str,
+        prompt_hash: &str,
+        output_hash: &str,
+    ) -> Result<()> {
         let id = Uuid::new_v4().to_string();
         self.conn.execute(
             "INSERT INTO ai_audit_log (id, timestamp, action, prompt_hash, output_hash) VALUES (?1, ?2, ?3, ?4, ?5)",

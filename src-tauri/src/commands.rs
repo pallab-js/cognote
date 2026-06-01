@@ -1,6 +1,6 @@
 use crate::db::{
-    AppConfig, DailyStats, Database, FileInfo, GraphData, Note, NoteLink, NoteTitle, Notebook, SearchResult,
-    Tag, Task,
+    AppConfig, DailyStats, Database, FileInfo, GraphData, Note, NoteLink, NoteTitle, Notebook,
+    SearchResult, Tag, Task,
 };
 use std::fs;
 use std::path::Path;
