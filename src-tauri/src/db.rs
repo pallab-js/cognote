@@ -36,6 +36,7 @@ pub struct NoteLink {
     pub source_note_id: String,
     pub target_note_id: String,
     pub context: Option<String>,
+    pub source_title: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -168,95 +169,109 @@ impl Database {
     }
 
     fn migrate(&self) -> Result<()> {
-        self.conn.execute_batch("
-            CREATE TABLE IF NOT EXISTS notebooks (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                parent_id TEXT REFERENCES notebooks(id) ON DELETE CASCADE,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            );
+        let current_version: i32 = self.conn.query_row(
+            "PRAGMA user_version",
+            [],
+            |row| row.get(0),
+        )?;
 
-            CREATE TABLE IF NOT EXISTS notes (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                content TEXT,
-                notebook_id TEXT REFERENCES notebooks(id) ON DELETE SET NULL,
-                is_pinned INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            );
+        if current_version < 1 {
+            self.conn.execute_batch("
+                CREATE TABLE IF NOT EXISTS notebooks (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    parent_id TEXT REFERENCES notebooks(id) ON DELETE CASCADE,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now'))
+                );
 
-            CREATE TABLE IF NOT EXISTS tags (
-                id TEXT PRIMARY KEY,
-                name TEXT UNIQUE NOT NULL
-            );
+                CREATE TABLE IF NOT EXISTS notes (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    content TEXT,
+                    notebook_id TEXT REFERENCES notebooks(id) ON DELETE SET NULL,
+                    is_pinned INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now'))
+                );
 
-            CREATE TABLE IF NOT EXISTS note_tags (
-                note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
-                tag_id TEXT REFERENCES tags(id) ON DELETE CASCADE,
-                PRIMARY KEY (note_id, tag_id)
-            );
+                CREATE TABLE IF NOT EXISTS tags (
+                    id TEXT PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL
+                );
 
-            CREATE TABLE IF NOT EXISTS note_links (
-                source_note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
-                target_note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
-                context TEXT,
-                PRIMARY KEY (source_note_id, target_note_id)
-            );
+                CREATE TABLE IF NOT EXISTS note_tags (
+                    note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
+                    tag_id TEXT REFERENCES tags(id) ON DELETE CASCADE,
+                    PRIMARY KEY (note_id, tag_id)
+                );
 
-            CREATE TABLE IF NOT EXISTS files (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL UNIQUE,
-                mime_type TEXT,
-                size INTEGER,
-                notebook_id TEXT REFERENCES notebooks(id) ON DELETE SET NULL,
-                created_at TEXT DEFAULT (datetime('now'))
-            );
+                CREATE TABLE IF NOT EXISTS note_links (
+                    source_note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
+                    target_note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
+                    context TEXT,
+                    PRIMARY KEY (source_note_id, target_note_id)
+                );
 
-            CREATE TABLE IF NOT EXISTS app_config (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
+                CREATE TABLE IF NOT EXISTS files (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    path TEXT NOT NULL UNIQUE,
+                    mime_type TEXT,
+                    size INTEGER,
+                    notebook_id TEXT REFERENCES notebooks(id) ON DELETE SET NULL,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-                title, content, content='notes', content_rowid='rowid'
-            );
+                CREATE TABLE IF NOT EXISTS app_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
 
-            CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
-                INSERT INTO notes_fts(rowid, title, content) VALUES (new.rowid, new.title, COALESCE(new.content, ''));
-            END;
+                CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+                    title, content, content='notes', content_rowid='rowid'
+                );
 
-            CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE ON notes BEGIN
-                INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES ('delete', old.rowid, old.title, COALESCE(old.content, ''));
-                INSERT INTO notes_fts(rowid, title, content) VALUES (new.rowid, new.title, COALESCE(new.content, ''));
-            END;
+                CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
+                    INSERT INTO notes_fts(rowid, title, content) VALUES (new.rowid, new.title, COALESCE(new.content, ''));
+                END;
 
-            CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes BEGIN
-                INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES ('delete', old.rowid, old.title, COALESCE(old.content, ''));
-            END;
+                CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE ON notes BEGIN
+                    INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES ('delete', old.rowid, old.title, COALESCE(old.content, ''));
+                    INSERT INTO notes_fts(rowid, title, content) VALUES (new.rowid, new.title, COALESCE(new.content, ''));
+                END;
 
-            CREATE INDEX IF NOT EXISTS idx_notes_notebook ON notes(notebook_id);
-            CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id);
-            CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(note_id);
-            CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(source_note_id);
-            CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
-            CREATE INDEX IF NOT EXISTS idx_files_notebook ON files(notebook_id);
+                CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes BEGIN
+                    INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES ('delete', old.rowid, old.title, COALESCE(old.content, ''));
+                END;
 
-            CREATE TABLE IF NOT EXISTS tasks (
-                id TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                is_completed INTEGER DEFAULT 0,
-                note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
-                due_date TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_tasks_note ON tasks(note_id);
-            CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(is_completed);
-        ")
+                CREATE INDEX IF NOT EXISTS idx_notes_notebook ON notes(notebook_id);
+                CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id);
+                CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(note_id);
+                CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(source_note_id);
+                CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
+                CREATE INDEX IF NOT EXISTS idx_files_notebook ON files(notebook_id);
+
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    is_completed INTEGER DEFAULT 0,
+                    note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
+                    due_date TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_tasks_note ON tasks(note_id);
+                CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(is_completed);
+            ")?;
+            self.conn.execute("PRAGMA user_version = 1", [])?;
+        }
+
+        // Optimize search index on startup for peak FTS5 query performance
+        let _ = self.conn.execute("INSERT INTO notes_fts(notes_fts) VALUES('optimize')", []);
+
+        Ok(())
     }
 
     // ── Notebooks ─────────────────────────────────────────────────────────────
@@ -465,6 +480,17 @@ impl Database {
         rows.collect()
     }
 
+    pub fn get_note_tags(&self, note_id: &str) -> Result<Vec<Tag>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.name FROM tags t 
+             JOIN note_tags nt ON t.id = nt.tag_id 
+             WHERE nt.note_id = ?1 
+             ORDER BY t.name"
+        )?;
+        let rows = stmt.query_map(params![note_id], |row| Ok(Tag { id: row.get(0)?, name: row.get(1)? }))?;
+        rows.collect()
+    }
+
     // ── Note Links ────────────────────────────────────────────────────────────
 
     pub fn create_note_link(&self, source_id: &str, target_id: &str, context: Option<&str>) -> Result<()> {
@@ -485,12 +511,16 @@ impl Database {
 
     pub fn get_backlinks(&self, note_id: &str) -> Result<Vec<NoteLink>> {
         let mut stmt = self.conn.prepare(
-            "SELECT source_note_id, target_note_id, context FROM note_links WHERE target_note_id = ?1"
+            "SELECT nl.source_note_id, nl.target_note_id, nl.context, n.title 
+             FROM note_links nl
+             JOIN notes n ON nl.source_note_id = n.id
+             WHERE nl.target_note_id = ?1"
         )?;
         let rows = stmt.query_map(params![note_id], |row| Ok(NoteLink {
             source_note_id: row.get(0)?,
             target_note_id: row.get(1)?,
             context: row.get(2)?,
+            source_title: Some(row.get(3)?),
         }))?;
         rows.collect()
     }
@@ -613,25 +643,28 @@ impl Database {
             return Ok(vec![]);
         }
 
-let mut sql = "
-            SELECT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
+        let mut sql = "
+            SELECT DISTINCT n.id, n.title, n.content, n.notebook_id, n.is_pinned, n.created_at, n.updated_at 
             FROM notes_fts 
             JOIN notes n ON notes_fts.rowid = n.rowid
-            WHERE notes_fts MATCH ?1
         ".to_string();
         
+        let mut conditions = vec!["notes_fts MATCH ?1".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(safe_query)];
         
         if let Some(tid) = tag_id {
-            sql.push_str(" JOIN note_tags nt ON n.id = nt.note_id AND nt.tag_id = ?");
+            sql.push_str(" JOIN note_tags nt ON n.id = nt.note_id");
+            conditions.push("nt.tag_id = ?".to_string());
             params_vec.push(Box::new(tid.to_string()));
         }
         
         if let Some(nb) = notebook_id {
-            sql.push_str(" AND n.notebook_id = ?");
+            conditions.push("n.notebook_id = ?".to_string());
             params_vec.push(Box::new(nb.to_string()));
         }
 
+        sql.push_str(" WHERE ");
+        sql.push_str(&conditions.join(" AND "));
         sql.push_str(" ORDER BY n.is_pinned DESC, n.updated_at DESC");
 
         let mut stmt = self.conn.prepare(&sql)?;
@@ -810,6 +843,13 @@ let mut sql = "
         let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter().map(|b| b.as_ref())), task_from_row)?;
         rows.collect()
     }
+
+    pub fn backup_to(&self, dst_path: &str) -> Result<()> {
+        let mut dst = Connection::open(dst_path)?;
+        let backup = rusqlite::backup::Backup::new(&self.conn, &mut dst)?;
+        backup.step(-1)?;
+        Ok(())
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -851,7 +891,7 @@ mod tests {
         assert_eq!(note.title, "Hello");
         assert!(!note.is_pinned);
 
-        let updated = db.update_note(&note.id, Some("Hello World"), Some("{\"type\":\"doc\"}"), None).unwrap();
+        let updated = db.update_note(&note.id, Some("Hello World"), Some("{\"type\":\"doc\"}"), None, None).unwrap();
         assert_eq!(updated.title, "Hello World");
         assert_eq!(updated.content, Some("{\"type\":\"doc\"}".to_string()));
 
@@ -878,8 +918,14 @@ mod tests {
         let tags = db.list_tags().unwrap();
         assert_eq!(tags.len(), 1);
 
+        let note_tags = db.get_note_tags(&note.id).unwrap();
+        assert_eq!(note_tags.len(), 1);
+        assert_eq!(note_tags[0].name, "rust");
+
         db.remove_tag(&note.id, &tag.id).unwrap();
         // Tag record stays, junction removed
+        let note_tags = db.get_note_tags(&note.id).unwrap();
+        assert_eq!(note_tags.len(), 0);
         let notes_by_tag = db.list_notes(None, Some(&tag.id), None).unwrap();
         assert_eq!(notes_by_tag.len(), 0);
     }
@@ -894,6 +940,7 @@ mod tests {
         let backlinks = db.get_backlinks(&b.id).unwrap();
         assert_eq!(backlinks.len(), 1);
         assert_eq!(backlinks[0].source_note_id, a.id);
+        assert_eq!(backlinks[0].source_title, Some("A".to_string()));
 
         let graph = db.get_knowledge_graph().unwrap();
         assert_eq!(graph.nodes.len(), 2);
@@ -922,9 +969,9 @@ mod tests {
     fn test_fts_search() {
         let db = db();
         let n1 = db.create_note("Rust Programming", None).unwrap();
-        db.update_note(&n1.id, None, Some("Rust is a systems language"), None).unwrap();
+        db.update_note(&n1.id, None, Some("Rust is a systems language"), None, None).unwrap();
         let n2 = db.create_note("Python Basics", None).unwrap();
-        db.update_note(&n2.id, None, Some("Python is easy"), None).unwrap();
+        db.update_note(&n2.id, None, Some("Python is easy"), None, None).unwrap();
 
         let results = db.search_notes("Rust").unwrap();
         assert_eq!(results.len(), 1);
@@ -988,12 +1035,12 @@ mod tests {
         let yesterday = (chrono::Local::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
         
         // Scenario 1: Note today
-        db.conn.execute("INSERT INTO notes (id, title, created_at) VALUES (?, ?, ?)", params![Uuid::new_v4().to_string(), "Today", today]).unwrap();
+        db.conn.execute("INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)", params![Uuid::new_v4().to_string(), "Today", today, today]).unwrap();
         let stats = db.get_daily_stats().unwrap();
         assert_eq!(stats.streak, 1);
 
         // Scenario 2: Note today and yesterday
-        db.conn.execute("INSERT INTO notes (id, title, created_at) VALUES (?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday]).unwrap();
+        db.conn.execute("INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday, yesterday]).unwrap();
         let stats = db.get_daily_stats().unwrap();
         assert_eq!(stats.streak, 2);
 
@@ -1001,7 +1048,7 @@ mod tests {
         db.conn.execute("DELETE FROM notes", []).unwrap();
         
         // Scenario 3: Note only yesterday (streak should be 1)
-        db.conn.execute("INSERT INTO notes (id, title, created_at) VALUES (?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday]).unwrap();
+        db.conn.execute("INSERT INTO notes (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)", params![Uuid::new_v4().to_string(), "Yesterday", yesterday, yesterday]).unwrap();
         let stats = db.get_daily_stats().unwrap();
         assert_eq!(stats.streak, 1);
     }

@@ -15,11 +15,11 @@
   import Highlight from '@tiptap/extension-highlight';
   import { MathExtension } from '@aarkue/tiptap-math-extension';
   import 'katex/dist/katex.min.css';
-  import { activeNoteId, showToast } from '$lib/stores/app';
-  import { wordCount, lastSaved } from '$lib/stores/notes';
-  import { getNote, updateNote, listNotes, createNoteLink } from '$lib/commands';
+  import { activeNoteId, activeNotebookId, showToast } from '$lib/stores/app';
+  import { wordCount, lastSaved, refreshNotes } from '$lib/stores/notes';
+  import { getNote, updateNote, listNotes, createNoteLink, deleteNote } from '$lib/commands';
   import type { Note } from '$lib/commands';
-  import { Bold, Italic, Heading1, Heading2, Code, Link as LinkIcon, List, ListOrdered, CheckSquare, Table as TableIcon, Image as ImageIcon, Highlighter, Sigma } from 'lucide-svelte';
+  import { Bold, Italic, Heading1, Heading2, Code, Link as LinkIcon, List, ListOrdered, CheckSquare, Table as TableIcon, Image as ImageIcon, Highlighter, Sigma, Trash2 } from 'lucide-svelte';
   import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 
   let editorEl: HTMLElement;
@@ -287,6 +287,19 @@
   function insertMath() {
     editor?.chain().focus().insertContent('<math></math>').run();
   }
+
+  async function deleteCurrentNote() {
+    if (!note) return;
+    if (!confirm('Delete this note?')) return;
+    try {
+      await deleteNote(note.id);
+      await refreshNotes($activeNotebookId ?? undefined);
+      activeNoteId.set(null);
+      showToast('Note deleted', 'success');
+    } catch (err) {
+      showToast('Failed to delete note', 'error');
+    }
+  }
 </script>
 
 <div class="editor-wrap">
@@ -300,6 +313,9 @@
         oninput={scheduleAutosave}
         placeholder="Untitled"
       />
+      <button class="delete-btn" onclick={deleteCurrentNote} title="Delete note">
+        <Trash2 size={16} />
+      </button>
     </div>
 
     <!-- Toolbar -->
@@ -338,9 +354,9 @@
 <style>
   .editor-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--bg-primary); }
 
-  .title-bar { padding: 24px 32px 0; flex-shrink: 0; }
+  .title-bar { padding: 24px 32px 0; flex-shrink: 0; display: flex; align-items: center; gap: 16px; }
   .note-title {
-    width: 100%; background: none; border: none; outline: none;
+    flex: 1; background: none; border: none; outline: none;
     font-size: 24px; font-weight: 400; color: var(--text-primary);
     font-family: var(--font-sans); letter-spacing: -0.16px;
     border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;
@@ -348,6 +364,13 @@
   }
   .note-title::placeholder { color: var(--text-muted); }
   .note-title:focus { border-color: var(--border-standard); }
+  .delete-btn {
+    background: none; border: 1px solid transparent; cursor: pointer;
+    color: var(--text-muted); padding: 8px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; margin-bottom: 12px;
+  }
+  .delete-btn:hover { color: #ff6b6b; background: rgba(255, 107, 107, 0.1); border-color: rgba(255, 107, 107, 0.2); }
 
   .toolbar {
     display: flex; align-items: center; gap: 4px;

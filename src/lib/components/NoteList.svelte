@@ -1,7 +1,7 @@
 <script lang="ts">
   import { FileText, Plus, Trash2, Pin } from 'lucide-svelte';
   import { notes, refreshNotes } from '$lib/stores/notes';
-  import { activeNoteId, activeNotebookId, activeTagId, searchQuery, showToast } from '$lib/stores/app';
+  import { activeNoteId, activeNotebookId, searchQuery, showToast } from '$lib/stores/app';
   import { createNote, deleteNote, searchNotes, updateNote } from '$lib/commands';
   import type { Note, SearchResult } from '$lib/commands';
   import { onMount } from 'svelte';
@@ -38,7 +38,7 @@
     e.stopPropagation();
     try {
       await updateNote(id, undefined, undefined, undefined, !pinned);
-      refreshNotes($activeNotebookId ?? undefined, $activeTagId ?? undefined);
+      refreshNotes($activeNotebookId ?? undefined);
     } catch (err) {
       showToast('Failed to pin note', 'error');
     }
@@ -56,7 +56,7 @@
   }
 
   $: {
-    refreshNotes($activeNotebookId ?? undefined, $activeTagId ?? undefined);
+    refreshNotes($activeNotebookId ?? undefined);
   }
 
   async function newNote() {
@@ -72,6 +72,9 @@
       await deleteNote(id);
       await refreshNotes($activeNotebookId ?? undefined);
       if ($activeNoteId === id) activeNoteId.set(null);
+      if ($searchQuery.trim()) {
+        searchResults = searchResults.filter(r => r.id !== id);
+      }
     } catch (err) {
       showToast('Failed to delete note', 'error');
     }

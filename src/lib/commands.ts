@@ -10,7 +10,7 @@ export interface Note {
   created_at: string; updated_at: string;
 }
 export interface Tag { id: string; name: string; }
-export interface NoteLink { source_note_id: string; target_note_id: string; context: string | null; }
+export interface NoteLink { source_note_id: string; target_note_id: string; context: string | null; source_title: string | null; }
 export interface FileInfo {
   id: string; name: string; path: string;
   mime_type: string | null; size: number | null;
@@ -53,7 +53,7 @@ export const deleteNote = (id: string) =>
   invoke<void>('delete_note', { id });
 export const deleteNotes = (ids: string[]) =>
   invoke<number>('delete_notes', { ids });
-export const listNotes = (notebook_id?: string, tag_id?: string, search_query?: string) =>
+export const listNotes = (notebook_id?: string, search_query?: string, tag_id?: string) =>
   invoke<Note[]>('list_notes', { notebookId: notebook_id, tagId: tag_id, searchQuery: search_query });
 
 // Tags
@@ -63,6 +63,8 @@ export const removeTag = (note_id: string, tag_id: string) =>
   invoke<void>('remove_tag', { noteId: note_id, tagId: tag_id });
 export const listTags = () =>
   invoke<Tag[]>('list_tags');
+export const getNoteTags = (note_id: string) =>
+  invoke<Tag[]>('get_note_tags', { noteId: note_id });
 
 // Links
 export const createNoteLink = (source_id: string, target_id: string, context?: string) =>
@@ -79,6 +81,8 @@ export const getMindmapData = (note_id: string) =>
 // Files
 export const importFile = (source_path: string, notebook_id?: string) =>
   invoke<FileInfo>('import_file', { sourcePath: source_path, notebookId: notebook_id });
+export const saveImage = (filename: string, bytes: number[] | Uint8Array) =>
+  invoke<string>('save_image', { filename, bytes: bytes instanceof Uint8Array ? Array.from(bytes) : bytes });
 export const listFiles = (notebook_id?: string) =>
   invoke<FileInfo[]>('list_files', { notebookId: notebook_id });
 export const deleteFile = (id: string) =>

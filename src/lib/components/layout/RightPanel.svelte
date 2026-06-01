@@ -3,26 +3,36 @@
     Link, 
     ListTree, 
     Settings, 
-    Tag, 
     CheckSquare,
     ChevronDown,
     ChevronRight,
     ExternalLink
   } from 'lucide-svelte';
-  import { rightPanelOpen, activeNoteId } from '$lib/stores/app';
   import { onMount } from 'svelte';
-  import { getNote, listTasks, type Task } from '$lib/commands';
+  import { rightPanelOpen, activeNoteId } from '$lib/stores/app';
+  import { getNote, listTasks, getBacklinks, getMindmapData, updateTask, createTask, type Task, type NoteLink } from '$lib/commands';
 
   let sections = [
     { id: 'backlinks', label: 'Backlinks', icon: Link, expanded: true },
     { id: 'outline', label: 'Outline', icon: ListTree, expanded: true },
     { id: 'properties', label: 'Properties', icon: Settings, expanded: false },
-    { id: 'tags', label: 'Tags', icon: Tag, expanded: false },
     { id: 'tasks', label: 'TASKS (mini)', icon: CheckSquare, expanded: true },
   ];
 
+  interface OutlineItem {
+    id: string;
+    label: string;
+    level: number;
+  }
+
   let miniTasks: Task[] = [];
+  let backlinks: NoteLink[] = [];
+  let activeNote: any = null;
+  let outline: OutlineItem[] = [];
   
+  let showInlineAdd = false;
+  let inlineContent = '';
+
   async function loadMiniTasks() {
     try {
       const allTasks = await listTasks();
@@ -32,8 +42,97 @@
     }
   }
 
+  async function toggleMiniTask(task: Task) {
+    try {
+      await updateTask(task.id, undefined, true);
+      await loadMiniTasks();
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
+    } catch (e) {
+      console.error('Failed to update task:', e);
+    }
+  }
+
+  async function addInlineTask() {
+    const content = inlineContent.trim();
+    if (!content) {
+      showInlineAdd = false;
+      return;
+    }
+    try {
+      await createTask(content, $activeNoteId ?? undefined);
+      inlineContent = '';
+      showInlineAdd = false;
+      await loadMiniTasks();
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
+    } catch (e) {
+      console.error('Failed to create task:', e);
+    }
+  }
+
+  async function loadBacklinks(noteId: string) {
+    try {
+      backlinks = await getBacklinks(noteId);
+    } catch (e) {
+      console.error('Failed to load backlinks:', e);
+      backlinks = [];
+    }
+  }
+
+  async function loadActiveNote(noteId: string) {
+    try {
+      activeNote = await getNote(noteId);
+    } catch (e) {
+      console.error('Failed to load active note:', e);
+      activeNote = null;
+    }
+  }
+
+  async function loadOutline(noteId: string) {
+    try {
+      const data = await getMindmapData(noteId);
+      const items: OutlineItem[] = [];
+      function traverse(node: any, level: number) {
+        if (level > 0) {
+          items.push({ id: node.id, label: node.label, level });
+        }
+        for (const child of node.children || []) {
+          traverse(child, level + 1);
+        }
+      }
+      traverse(data, 0);
+      outline = items;
+    } catch (e) {
+      console.error('Failed to load outline:', e);
+      outline = [];
+    }
+  }
+
+  function formatDate(dStr: string) {
+    if (!dStr) return '';
+    return new Date(dStr).toLocaleDateString(undefined, { 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
+  $: if ($activeNoteId) {
+    loadBacklinks($activeNoteId);
+    loadActiveNote($activeNoteId);
+    loadOutline($activeNoteId);
+  } else {
+    backlinks = [];
+    activeNote = null;
+    outline = [];
+  }
+
   onMount(() => {
     loadMiniTasks();
+    window.addEventListener('tasks-updated', loadMiniTasks);
+    return () => {
+      window.removeEventListener('tasks-updated', loadMiniTasks);
+    };
   });
 
   function toggleSection(id: string) {
@@ -54,41 +153,79 @@
         {#if section.expanded}
           <div class="section-body">
             {#if section.id === 'backlinks'}
-              <div class="empty-state">No backlinks found</div>
+              <div class="backlinks-list">
+                {#each backlinks as link}
+                  <button class="backlink-item" onclick={() => activeNoteId.set(link.source_note_id)}>
+                    <span class="backlink-title">{link.source_title || 'Untitled'}</span>
+                    {#if link.context}
+                      <span class="backlink-context">{link.context}</span>
+                    {/if}
+                  </button>
+                {:else}
+                  <div class="empty-state">No backlinks found</div>
+                {/each}
+              </div>
             {:else if section.id === 'outline'}
               <div class="outline-list">
-                <div class="outline-item h1">Introduction</div>
-                <div class="outline-item h2">Core Concepts</div>
-                <div class="outline-item h2">Implementation</div>
+                {#each outline as item}
+                  <div class="outline-item h{item.level}">{item.label}</div>
+                {:else}
+                  <div class="empty-state">No headings in this note</div>
+                {/each}
               </div>
             {:else if section.id === 'properties'}
-              <div class="properties-list">
-                <div class="prop-row">
-                  <span class="prop-key">ID</span>
-                  <span class="prop-val mono">{$activeNoteId?.slice(0, 8) || 'None'}</span>
+              {#if activeNote}
+                <div class="properties-list">
+                  <div class="prop-row">
+                    <span class="prop-key">ID</span>
+                    <span class="prop-val mono">{$activeNoteId?.slice(0, 8) || 'None'}</span>
+                  </div>
+                  <div class="prop-row">
+                    <span class="prop-key">Created</span>
+                    <span class="prop-val">{formatDate(activeNote.created_at)}</span>
+                  </div>
+                  <div class="prop-row">
+                    <span class="prop-key">Updated</span>
+                    <span class="prop-val">{formatDate(activeNote.updated_at)}</span>
+                  </div>
+                  <div class="prop-row">
+                    <span class="prop-key">Pinned</span>
+                    <span class="prop-val">{activeNote.is_pinned ? 'Yes' : 'No'}</span>
+                  </div>
                 </div>
-                <div class="prop-row">
-                  <span class="prop-key">Status</span>
-                  <span class="prop-val">Draft</span>
-                </div>
-              </div>
-            {:else if section.id === 'tags'}
-              <div class="tags-cloud">
-                <span class="tag-pill">#research</span>
-                <span class="tag-pill">#ai</span>
-                <span class="tag-pill">#draft</span>
-              </div>
+              {:else}
+                <div class="empty-state">No note selected</div>
+              {/if}
             {:else if section.id === 'tasks'}
               <div class="mini-tasks">
                 {#each miniTasks as task}
                   <div class="mini-task-item">
-                    <input type="checkbox" />
+                    <input 
+                      type="checkbox" 
+                      checked={task.is_completed} 
+                      onchange={() => toggleMiniTask(task)} 
+                    />
                     <span class="task-text">{task.content}</span>
                   </div>
                 {:else}
                   <div class="empty-state">No pending tasks</div>
                 {/each}
-                <button class="add-task-inline">+ Add Task</button>
+                
+                {#if showInlineAdd}
+                  <div class="inline-add-container">
+                    <input 
+                      type="text" 
+                      class="inline-add-input"
+                      placeholder="New task... (Enter)"
+                      bind:value={inlineContent}
+                      onkeydown={e => e.key === 'Enter' && addInlineTask()}
+                      onblur={addInlineTask}
+                      autofocus
+                    />
+                  </div>
+                {:else}
+                  <button class="add-task-inline" onclick={() => showInlineAdd = true}>+ Add Task</button>
+                {/if}
               </div>
             {/if}
           </div>
@@ -170,11 +307,17 @@
   .outline-item {
     cursor: pointer;
     transition: color 0.2s;
+    font-size: 12px;
+    padding: 2px 0;
   }
 
   .outline-item:hover { color: var(--green-brand); }
-  .outline-item.h1 { font-weight: 600; color: var(--text-primary); }
-  .outline-item.h2 { padding-left: 12px; font-size: 12px; }
+  .outline-item.h1 { font-weight: 500; color: var(--text-primary); padding-left: 0; }
+  .outline-item.h2 { padding-left: 8px; color: var(--text-secondary); }
+  .outline-item.h3 { padding-left: 16px; color: var(--text-muted); }
+  .outline-item.h4 { padding-left: 24px; color: var(--text-muted); }
+  .outline-item.h5 { padding-left: 32px; color: var(--text-muted); }
+  .outline-item.h6 { padding-left: 40px; color: var(--text-muted); }
 
   .properties-list {
     display: flex;
@@ -199,28 +342,6 @@
   }
 
   .prop-val.mono { font-family: var(--font-mono); }
-
-  .tags-cloud {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .tag-pill {
-    background: var(--border-subtle);
-    padding: 2px 10px;
-    border-radius: 4px;
-    font-size: 11px;
-    color: var(--green-brand);
-    border: 1px solid var(--green-border);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .tag-pill:hover {
-    background: rgba(62, 207, 142, 0.1);
-    transform: translateY(-1px);
-  }
 
   .mini-tasks {
     display: flex;
@@ -259,5 +380,67 @@
 
   .add-task-inline:hover {
     color: var(--green-brand);
+  }
+
+  .backlinks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .backlink-item {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transition: all 0.2s;
+  }
+
+  .backlink-item:hover {
+    background: var(--border-subtle);
+    border-color: var(--border-standard);
+    color: var(--text-primary);
+  }
+
+  .backlink-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .backlink-context {
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .inline-add-container {
+    margin-top: 4px;
+    width: 100%;
+  }
+
+  .inline-add-input {
+    width: 100%;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-standard);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text-primary);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .inline-add-input:focus {
+    border-color: var(--green-brand);
   }
 </style>

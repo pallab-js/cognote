@@ -1,7 +1,7 @@
 <!-- ANCHOR: GRAPH_RENDERED -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { getKnowledgeGraph } from '$lib/commands';
+  import { getKnowledgeGraph, listTags, listNotes, type Tag } from '$lib/commands';
   import { activeNoteId, currentView } from '$lib/stores/app';
   import { 
     RefreshCw, 
@@ -22,6 +22,56 @@
   let focusMode = false;
   let layoutName = 'dagre';
 
+  let tags: Tag[] = [];
+  let showTagDropdown = false;
+  let selectedTag: Tag | null = null;
+
+  async function loadTags() {
+    try {
+      tags = await listTags();
+    } catch (e) {
+      console.error('Failed to load tags:', e);
+    }
+  }
+
+  async function filterByTag(tag: Tag | null) {
+    selectedTag = tag;
+    showTagDropdown = false;
+    if (!cy) return;
+    
+    if (!tag) {
+      cy.elements().removeClass('filtered-out');
+      return;
+    }
+    
+    try {
+      const notesWithTag = await listNotes(undefined, undefined, tag.id);
+      const noteIds = new Set(notesWithTag.map(n => n.id));
+      
+      cy.elements().forEach((el: any) => {
+        if (el.isNode()) {
+          if (noteIds.has(el.id())) {
+            el.removeClass('filtered-out');
+          } else {
+            el.addClass('filtered-out');
+          }
+        }
+      });
+      
+      cy.edges().forEach((edge: any) => {
+        const sourceFiltered = edge.source().hasClass('filtered-out');
+        const targetFiltered = edge.target().hasClass('filtered-out');
+        if (sourceFiltered || targetFiltered) {
+          edge.addClass('filtered-out');
+        } else {
+          edge.removeClass('filtered-out');
+        }
+      });
+    } catch (e) {
+      console.error('Failed to filter by tag:', e);
+    }
+  }
+
   onMount(async () => {
     const [cytoscape, dagre, cytoscapeDagre] = await Promise.all([
       import('cytoscape'),
@@ -30,6 +80,7 @@
     ]);
     cytoscape.default.use(cytoscapeDagre.default);
     await loadGraph(cytoscape.default);
+    await loadTags();
   });
 
   onDestroy(() => {
@@ -142,6 +193,20 @@
               'opacity': 0.05,
             },
           },
+          {
+            selector: 'node.filtered-out',
+            style: {
+              'opacity': 0.1,
+              'pointer-events': 'none',
+            },
+          },
+          {
+            selector: 'edge.filtered-out',
+            style: {
+              'opacity': 0.0,
+              'pointer-events': 'none',
+            },
+          },
         ],
         layout: {
           name: layoutName === 'dagre' ? (data.nodes.length > 200 ? 'concentric' : 'dagre') : 'cose',
@@ -245,13 +310,30 @@
 
       <div class="divider"></div>
 
-      <div class="control-group">
+      <div class="control-group" style="position: relative;">
         <button class="ctrl-btn" class:active={focusMode} onclick={toggleFocusMode} title="Focus Mode">
           <Target size={14}/>
         </button>
-        <button class="ctrl-btn" onclick={() => {}} title="Filter by Tag">
+        <button class="ctrl-btn" class:active={selectedTag !== null} onclick={() => showTagDropdown = !showTagDropdown} title="Filter by Tag">
           <Filter size={14}/>
         </button>
+
+        {#if showTagDropdown}
+          <div class="tag-dropdown">
+            <button class="tag-dropdown-item reset" class:active={selectedTag === null} onclick={() => filterByTag(null)}>
+              Clear Filter
+            </button>
+            <div class="dropdown-divider"></div>
+            {#each tags as tag}
+              <button class="tag-dropdown-item" class:active={selectedTag?.id === tag.id} onclick={() => filterByTag(tag)}>
+                #{tag.name}
+              </button>
+            {:else}
+              <div class="tag-dropdown-empty">No tags found</div>
+            {/each}
+          </div>
+        {/if}
+
         <button class="ctrl-btn" onclick={toggleLayout} title="Toggle Layout (Dagre/Force)">
           <Settings2 size={14}/>
         </button>
@@ -460,5 +542,68 @@
     font-size: 10px;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .tag-dropdown {
+    position: absolute;
+    top: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-prominent);
+    border-radius: 8px;
+    padding: 6px;
+    min-width: 140px;
+    z-index: 100;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .tag-dropdown-item {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 6px 10px;
+    text-align: left;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .tag-dropdown-item:hover {
+    background: var(--border-subtle);
+    color: var(--text-primary);
+  }
+
+  .tag-dropdown-item.active {
+    background: rgba(62, 207, 142, 0.1);
+    color: var(--green-brand);
+    font-weight: 500;
+  }
+
+  .tag-dropdown-item.reset {
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .tag-dropdown-item.reset:hover {
+    color: #ff6b6b;
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 4px 0;
+  }
+
+  .tag-dropdown-empty {
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
   }
 </style>

@@ -2,11 +2,57 @@
   import { onMount } from 'svelte';
   import { getMindmapData } from '$lib/commands';
   import { activeNoteId } from '$lib/stores/app';
+  import { ZoomIn, ZoomOut, Maximize } from 'lucide-svelte';
 
   let svgEl: SVGElement;
+  let viewportG: SVGGElement;
   let loading = false;
   let error = '';
   let renderId = 0;
+
+  let zoom = 1;
+  let panX = 0;
+  let panY = 0;
+  let isPanning = false;
+  let startX = 0;
+  let startY = 0;
+
+  function handleMouseDown(e: MouseEvent) {
+    if (loading || error || !$activeNoteId) return;
+    isPanning = true;
+    startX = e.clientX - panX;
+    startY = e.clientY - panY;
+    document.body.classList.add('panning');
+  }
+
+  function handleMouseMove(e: MouseEvent) {
+    if (!isPanning) return;
+    panX = e.clientX - startX;
+    panY = e.clientY - startY;
+  }
+
+  function handleMouseUp() {
+    isPanning = false;
+    document.body.classList.remove('panning');
+  }
+
+  function handleWheel(e: WheelEvent) {
+    if (loading || error || !$activeNoteId) return;
+    e.preventDefault();
+    const zoomIntensity = 0.05;
+    const nextZoom = e.deltaY < 0 ? zoom + zoomIntensity : zoom - zoomIntensity;
+    zoom = Math.max(0.3, Math.min(3, nextZoom));
+  }
+
+  function resetZoom() {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+  }
+
+  $: if (viewportG) {
+    viewportG.setAttribute('transform', `translate(${panX}, ${panY}) scale(${zoom})`);
+  }
 
   $: {
     if ($activeNoteId) {
@@ -49,6 +95,13 @@
       // Build SVG
       const ns = 'http://www.w3.org/2000/svg';
       while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+      
+      // Create viewport group
+      viewportG = document.createElementNS(ns, 'g') as SVGGElement;
+      viewportG.setAttribute('class', 'viewport');
+      viewportG.setAttribute('transform', `translate(${panX}, ${panY}) scale(${zoom})`);
+      svgEl.appendChild(viewportG);
+
       svgEl.setAttribute('viewBox', `${minY - pad} ${minX - pad} ${w} ${h}`);
       svgEl.setAttribute('width', String(w));
       svgEl.setAttribute('height', String(h));
@@ -63,7 +116,7 @@
         path.setAttribute('fill', 'none');
         path.setAttribute('stroke', 'var(--border-prominent)');
         path.setAttribute('stroke-width', '1');
-        svgEl.appendChild(path);
+        viewportG.appendChild(path);
       });
 
       // Nodes
@@ -91,7 +144,7 @@
         text.textContent = label;
         g.appendChild(text);
 
-        svgEl.appendChild(g);
+        viewportG.appendChild(g);
       });
     } catch (e) {
       error = 'Failed to load mind map';
@@ -104,11 +157,24 @@
 
 <div class="mindmap-wrap">
   <div class="mm-header">
-    <span class="mm-title">Mind Map</span>
-    {#if $activeNoteId}
-      <span class="mm-hint">Headings from current note</span>
+    <div class="left">
+      <span class="mm-title">Mind Map</span>
+      {#if $activeNoteId}
+        <span class="mm-hint">Headings from current note</span>
+      {/if}
+    </div>
+    
+    {#if $activeNoteId && !loading && !error}
+      <div class="center-controls">
+        <div class="control-group">
+          <button class="ctrl-btn" onclick={() => zoom = Math.min(3, zoom + 0.1)} title="Zoom In"><ZoomIn size={14}/></button>
+          <button class="ctrl-btn" onclick={() => zoom = Math.max(0.3, zoom - 0.1)} title="Zoom Out"><ZoomOut size={14}/></button>
+          <button class="ctrl-btn" onclick={resetZoom} title="Reset Zoom"><Maximize size={14}/></button>
+        </div>
+      </div>
     {/if}
   </div>
+  
   {#if !$activeNoteId}
     <div class="empty">Select a note to see its mind map</div>
   {:else if loading}
@@ -116,21 +182,104 @@
   {:else if error}
     <div class="empty">{error}</div>
   {:else}
-    <div class="svg-wrap">
+    <div 
+      class="svg-wrap"
+      onmousedown={handleMouseDown}
+      onmousemove={handleMouseMove}
+      onmouseup={handleMouseUp}
+      onmouseleave={handleMouseUp}
+      onwheel={handleWheel}
+      role="presentation"
+    >
       <svg bind:this={svgEl} class="mindmap-svg"></svg>
     </div>
   {/if}
 </div>
 
 <style>
-  .mindmap-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .mindmap-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--bg-primary); }
+  
   .mm-header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
+    z-index: 10;
+    flex-shrink: 0;
   }
+
+  .left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .center-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-primary);
+    padding: 4px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-standard);
+  }
+
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .ctrl-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .ctrl-btn:hover {
+    color: var(--text-primary);
+    background: var(--border-subtle);
+  }
+
   .mm-title { font-size: 11px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); }
   .mm-hint { font-size: 11px; color: var(--text-muted); }
-  .svg-wrap { flex: 1; overflow: auto; padding: 16px; display: flex; align-items: flex-start; justify-content: center; }
-  .mindmap-svg { display: block; }
+  
+  .svg-wrap {
+    flex: 1;
+    overflow: hidden;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    user-select: none;
+    position: relative;
+    background: var(--bg-primary);
+  }
+
+  .svg-wrap:active {
+    cursor: grabbing;
+  }
+
+  :global(body.panning) {
+    cursor: grabbing !important;
+    user-select: none;
+  }
+
+  .mindmap-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
   .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 13px; }
 </style>

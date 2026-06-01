@@ -27,5 +27,11 @@ commands.allow = [
     "backup_vault",
     "get_daily_stats",
     "get_app_config",
-    "update_app_config"
+    "update_app_config",
+    "create_task",
+    "get_task",
+    "update_task",
+    "delete_task",
+    "list_tasks",
+    "save_image"
 ]

@@ -47,6 +47,7 @@ pub fn run() {
             commands::add_tag,
             commands::remove_tag,
             commands::list_tags,
+            commands::get_note_tags,
             commands::create_note_link,
             commands::remove_note_link,
             commands::get_backlinks,

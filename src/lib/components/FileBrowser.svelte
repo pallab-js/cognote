@@ -12,6 +12,29 @@
   let isDragging = false;
   let loading = false;
   let previewFile: FileInfo | null = null;
+  let fileInput: HTMLInputElement;
+
+  function triggerImport() {
+    fileInput.click();
+  }
+
+  async function handleFileSelect(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (!target.files?.length) return;
+    loading = true;
+    try {
+      for (const file of Array.from(target.files)) {
+        const filePath = (file as any).path ?? file.name;
+        await importFile(filePath, $activeNotebookId ?? undefined);
+      }
+      await refresh();
+    } catch (err) {
+      console.error('Import failed:', err);
+    } finally {
+      loading = false;
+      target.value = '';
+    }
+  }
 
   onMount(() => { refresh(); });
   $: $activeNotebookId, refresh();
@@ -90,6 +113,18 @@
     <span class="fb-title">Files</span>
     <span class="fb-count">{files.length}</span>
     <div class="fb-actions">
+      <button class="import-action-btn" onclick={triggerImport} title="Import files">
+        <Upload size={12} />
+        <span>Import</span>
+      </button>
+      <input 
+        type="file" 
+        multiple 
+        style="display: none;" 
+        bind:this={fileInput} 
+        onchange={handleFileSelect} 
+      />
+      <div class="header-divider"></div>
       <button class="icon-btn" class:active={viewMode === 'grid'} onclick={() => viewMode = 'grid'} title="Grid view"><Grid size={13}/></button>
       <button class="icon-btn" class:active={viewMode === 'list'} onclick={() => viewMode = 'list'} title="List view"><List size={13}/></button>
     </div>
@@ -266,4 +301,32 @@
     color: var(--text-secondary); font-size: 12px; cursor: pointer;
   }
   .open-btn:hover { border-color: var(--green-border); color: var(--green-brand); }
+
+  .import-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-standard);
+    border-radius: 6px;
+    padding: 5px 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .import-action-btn:hover {
+    border-color: var(--green-border);
+    color: var(--green-brand);
+    background: rgba(62, 207, 142, 0.05);
+  }
+
+  .header-divider {
+    width: 1px;
+    height: 14px;
+    background: var(--border-subtle);
+    margin: 0 4px;
+  }
 </style>

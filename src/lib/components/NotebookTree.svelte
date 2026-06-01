@@ -2,8 +2,9 @@
   import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Pencil } from 'lucide-svelte';
   import type { Notebook } from '$lib/commands';
   import { createNotebook, renameNotebook, deleteNotebook } from '$lib/commands';
-  import { notebooks, refreshNotebooks } from '$lib/stores/notebooks';
-  import { activeNotebookId, activeTagId, showToast } from '$lib/stores/app';
+  import { notebooks, refreshNotebooks, creatingNotebookUnderId } from '$lib/stores/notebooks';
+  import { refreshNotes } from '$lib/stores/notes';
+  import { activeNotebookId, showToast } from '$lib/stores/app';
 
   export let items: Notebook[] = [];
   export let parentId: string | null = null;
@@ -12,14 +13,28 @@
   let expanded: Record<string, boolean> = {};
   let editing: string | null = null;
   let editName = '';
+  let newName = '';
 
   $: children = items.filter(n => n.parent_id === parentId);
 
-  async function addNotebook(parent: string | null) {
-    const name = prompt('Notebook name:');
-    if (!name?.trim()) return;
+  function startCreate(parent: string | null) {
+    if (parent !== null) {
+      expanded[parent] = true;
+    }
+    creatingNotebookUnderId.set(parent);
+    newName = '';
+  }
+
+  async function commitCreate() {
+    const name = newName.trim();
+    if (!name) {
+      creatingNotebookUnderId.set(undefined);
+      return;
+    }
     try {
-      await createNotebook(name.trim(), parent ?? undefined);
+      const parent = $creatingNotebookUnderId;
+      creatingNotebookUnderId.set(undefined);
+      await createNotebook(name, parent ?? undefined);
       await refreshNotebooks();
     } catch (err) {
       console.error('Failed to create notebook:', err);
@@ -52,7 +67,11 @@
     try {
       await deleteNotebook(id);
       await refreshNotebooks();
-      if ($activeNotebookId === id) activeNotebookId.set(null);
+      if ($activeNotebookId === id) {
+        activeNotebookId.set(null);
+      } else {
+        await refreshNotes($activeNotebookId ?? undefined);
+      }
     } catch (err) {
       console.error('Failed to delete notebook:', err);
       showToast('Failed to delete: ' + String(err), 'error');
@@ -70,7 +89,7 @@
         class:active={isActive}
         role="button"
         tabindex="0"
-        onclick={() => { activeNotebookId.set(nb.id); activeTagId.set(null); }}
+        onclick={() => { activeNotebookId.set(nb.id); }}
         onkeydown={e => e.key === 'Enter' && activeNotebookId.set(nb.id)}
       >
         <button class="icon-btn" onclick={(e) => { e.stopPropagation(); expanded[nb.id] = !expanded[nb.id]; }}>
@@ -92,7 +111,7 @@
           <span class="nb-name">{nb.name}</span>
         {/if}
         <div class="nb-actions">
-          <button class="icon-btn" title="Add child" onclick={(e) => { e.stopPropagation(); addNotebook(nb.id); }}><Plus size={11}/></button>
+          <button class="icon-btn" title="Add child" onclick={(e) => { e.stopPropagation(); startCreate(nb.id); }}><Plus size={11}/></button>
           <button class="icon-btn" title="Rename" onclick={(e) => { e.stopPropagation(); startEdit(nb); }}><Pencil size={11}/></button>
           <button class="icon-btn danger" title="Delete" onclick={(e) => { e.stopPropagation(); remove(nb.id); }}><Trash2 size={11}/></button>
         </div>
@@ -102,10 +121,29 @@
       {/if}
     </li>
   {/each}
+  {#if $creatingNotebookUnderId === parentId}
+    <li>
+      <div class="nb-row active" style="padding-left: 6px; gap: 4px;">
+        <span style="width:12px;display:inline-block"></span>
+        <Folder size={14} color="var(--green-brand)"/>
+        <input
+          class="edit-input"
+          placeholder="New notebook..."
+          bind:value={newName}
+          onblur={commitCreate}
+          onkeydown={e => {
+            if (e.key === 'Enter') commitCreate();
+            else if (e.key === 'Escape') { newName = ''; creatingNotebookUnderId.set(undefined); }
+          }}
+          autofocus
+        />
+      </div>
+    </li>
+  {/if}
 </ul>
 
 {#if depth === 0}
-  <button class="add-root-btn" onclick={() => addNotebook(null)}>
+  <button class="add-root-btn" onclick={() => startCreate(null)}>
     <Plus size={12}/> New notebook
   </button>
 {/if}

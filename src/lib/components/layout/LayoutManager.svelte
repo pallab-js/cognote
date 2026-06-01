@@ -2,10 +2,9 @@
   import TopBar from './TopBar.svelte';
   import LeftSidebar from './LeftSidebar.svelte';
   import RightPanel from './RightPanel.svelte';
-  import BottomPanel from './BottomPanel.svelte';
   import StatusBar from '../StatusBar.svelte';
-  import { leftSidebarOpen, rightPanelOpen, bottomPanelOpen } from '$lib/stores/app';
-  import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, PanelBottom } from 'lucide-svelte';
+  import { leftSidebarOpen, rightPanelOpen } from '$lib/stores/app';
+  import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-svelte';
 
   let { children } = $props();
 
@@ -36,7 +35,6 @@
 
   function toggleLeft() { leftSidebarOpen.update(v => !v); }
   function toggleRight() { rightPanelOpen.update(v => !v); }
-  function toggleBottom() { bottomPanelOpen.update(v => !v); }
 </script>
 
 <div class="layout-container">
@@ -59,15 +57,10 @@
         <button class="control-btn" onclick={toggleLeft} title="Toggle Sidebar">
           {#if $leftSidebarOpen}<PanelLeftClose size={16}/>{:else}<PanelLeftOpen size={16}/>{/if}
         </button>
-        <button class="control-btn" onclick={toggleBottom} title="Toggle Bottom Panel">
-          <PanelBottom size={16} />
-        </button>
         <button class="control-btn" onclick={toggleRight} title="Toggle Right Panel">
           {#if $rightPanelOpen}<PanelRightClose size={16}/>{:else}<PanelRightOpen size={16}/>{/if}
         </button>
       </div>
-
-      <BottomPanel />
     </main>
 
     <div class="right-panel-wrapper" style="width: {$rightPanelOpen ? 300 : 0}px">

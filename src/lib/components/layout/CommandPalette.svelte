@@ -4,10 +4,10 @@
     commandPaletteOpen, 
     currentView, 
     activeNoteId, 
+    activeNotebookId,
     showToast,
     leftSidebarOpen,
-    rightPanelOpen,
-    bottomPanelOpen
+    rightPanelOpen
   } from '$lib/stores/app';
   import { 
     Search, 
@@ -16,37 +16,36 @@
     Network, 
     CheckSquare, 
     LayoutDashboard, 
-    BookOpen,
     Command,
     Settings,
     Moon,
     Sun,
     PanelLeft,
     PanelRight,
-    PanelBottom
+    Trash2
   } from 'lucide-svelte';
-  import { createNote } from '$lib/commands';
+  import { createNote, backupVault, deleteNote } from '$lib/commands';
   import { refreshNotes } from '$lib/stores/notes';
 
   let query = '';
   let selectedIndex = 0;
   let container: HTMLElement;
 
-  const commands = [
+  $: activeCommands = [
     { id: 'new-note', label: 'Create New Note', icon: Plus, shortcut: '⌘ N', action: handleNewNote },
+    ...($activeNoteId ? [{ id: 'delete-note', label: 'Delete Current Note', icon: Trash2, action: handleDeleteNote }] : []),
     { id: 'view-editor', label: 'Go to Editor', icon: FileText, action: () => currentView.set('editor') },
     { id: 'view-dashboard', label: 'Go to Dashboard', icon: LayoutDashboard, action: () => currentView.set('dashboard') },
-    { id: 'view-research', label: 'Go to Research Mode', icon: BookOpen, action: () => currentView.set('research') },
     { id: 'view-graph', label: 'Go to Knowledge Graph', icon: Network, action: () => currentView.set('graph') },
     { id: 'view-tasks', label: 'Go to Tasks', icon: CheckSquare, action: () => currentView.set('tasks') },
-    { id: 'toggle-sidebar', label: 'Toggle Left Sidebar', icon: PanelLeft, action: () => leftSidebarOpen.update(v => !v) },
-    { id: 'toggle-right', label: 'Toggle Right Panel', icon: PanelRight, action: () => rightPanelOpen.update(v => !v) },
-    { id: 'toggle-bottom', label: 'Toggle Bottom Panel', icon: PanelBottom, action: () => bottomPanelOpen.update(v => !v) },
+    { id: 'toggle-sidebar', label: 'Toggle Left Sidebar', icon: PanelLeft, action: () => leftSidebarOpen.update((v: boolean) => !v) },
+    { id: 'toggle-right', label: 'Toggle Right Panel', icon: PanelRight, action: () => rightPanelOpen.update((v: boolean) => !v) },
+    { id: 'backup-vault', label: 'Backup Vault Database', icon: Settings, action: handleBackupVault },
   ];
 
   $: filteredCommands = query 
-    ? commands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()))
-    : commands;
+    ? activeCommands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()))
+    : activeCommands;
 
   async function handleNewNote() {
     try {
@@ -56,6 +55,30 @@
       currentView.set('editor');
     } catch (e) {
       showToast('Failed to create note', 'error');
+    }
+  }
+
+  async function handleDeleteNote() {
+    if (!$activeNoteId) return;
+    if (!confirm('Delete the active note?')) return;
+    try {
+      await deleteNote($activeNoteId);
+      await refreshNotes($activeNotebookId ?? undefined);
+      activeNoteId.set(null);
+      showToast('Note deleted', 'success');
+    } catch (e) {
+      showToast('Failed to delete note', 'error');
+    }
+  }
+
+  async function handleBackupVault() {
+    try {
+      showToast('Creating database backup...', 'info');
+      const backupPath = await backupVault();
+      showToast(`Backup created successfully: ${backupPath}`, 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to back up vault database', 'error');
     }
   }
 

@@ -5,11 +5,9 @@
     CheckSquare, 
     Files, 
     Network, 
-    Tag, 
     ChevronDown, 
     ChevronRight,
-    Folder,
-    BookOpen
+    Folder
   } from 'lucide-svelte';
   import { currentView, leftSidebarOpen } from '$lib/stores/app';
   import NotebookTree from '$lib/components/NotebookTree.svelte';
@@ -18,11 +16,9 @@
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'editor', label: 'Notes', icon: FileText },
-    { id: 'research', label: 'Research', icon: BookOpen },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare },
     { id: 'files', label: 'Files', icon: Files },
     { id: 'graph', label: 'Graph', icon: Network },
-    { id: 'tags', label: 'Tags', icon: Tag },
   ];
 
   let foldersExpanded = true;

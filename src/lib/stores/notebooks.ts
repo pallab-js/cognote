@@ -3,6 +3,7 @@ import type { Notebook } from '../commands';
 import { getNotebookTree } from '../commands';
 
 export const notebooks = writable<Notebook[]>([]);
+export const creatingNotebookUnderId = writable<string | null | undefined>(undefined);
 
 export async function refreshNotebooks() {
   try {

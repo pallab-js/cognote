@@ -39,6 +39,8 @@ pub struct AppState {
 
 #[tauri::command]
 pub fn create_notebook(state: State<AppState>, name: String, parent_id: Option<String>) -> Result<Notebook, String> {
+    let name = name.trim().to_string();
+    validate_title(&name)?;
     state.db.lock().unwrap()
         .create_notebook(&name, parent_id.as_deref())
         .map_err(|e| e.to_string())
@@ -162,6 +164,13 @@ pub fn remove_tag(state: State<AppState>, note_id: String, tag_id: String) -> Re
 pub fn list_tags(state: State<AppState>) -> Result<Vec<Tag>, String> {
     state.db.lock().unwrap()
         .list_tags()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_note_tags(state: State<AppState>, note_id: String) -> Result<Vec<Tag>, String> {
+    state.db.lock().unwrap()
+        .get_note_tags(&note_id)
         .map_err(|e| e.to_string())
 }
 
@@ -353,7 +362,7 @@ fn parse_headings_to_tree(note_id: &str, title: &str, content: &str) -> MindMapN
     let mut root = MindMapNode { id: note_id.to_string(), label: title.to_string(), children: vec![] };
     if let Ok(doc) = serde_json::from_str::<serde_json::Value>(content) {
         if let Some(nodes) = doc["content"].as_array() {
-            let mut stack: Vec<(u64, usize)> = vec![]; // (level, index into children)
+            let mut stack: Vec<(u64, usize)> = vec![(0, 0)]; // (level, index into children)
             for node in nodes {
                 if node["type"] == "heading" {
                     let level = node["attrs"]["level"].as_u64().unwrap_or(1);
@@ -362,23 +371,23 @@ fn parse_headings_to_tree(note_id: &str, title: &str, content: &str) -> MindMapN
                         .and_then(|t| t["text"].as_str())
                         .unwrap_or("").to_string();
                     if text.is_empty() { continue; }
-                    let child = MindMapNode { id: uuid::Uuid::new_v4().to_string(), label: text, children: vec![] };
-                    // Pop stack until parent level < current level
-                    while stack.len() > 1 && stack.last().map(|(l, _)| *l >= level).unwrap_or(false) {
+                    
+                    // Pop stack until top level < current heading level
+                    while stack.len() > 1 && stack.last().unwrap().0 >= level {
                         stack.pop();
                     }
-                    // Find parent (either root or last child at lower level)
-                    let parent_idx = if stack.len() == 0 { 0 } else { stack.len() - 1 };
-                    let parent_children = if parent_idx == 0 { &mut root.children } else { 
-                        // Traverse to find the right parent
-                        let mut parent = &mut root;
-                        for (_, idx) in stack.iter().skip(1) {
-                            parent = &mut parent.children[*idx];
-                        }
-                        &mut parent.children
-                    };
-                    parent_children.push(child);
-                    let new_idx = parent_children.len() - 1;
+                    
+                    // Traverse to find the parent node using the indices in the stack
+                    let mut parent = &mut root;
+                    // Skip the level 0 root node indicator, then traverse down
+                    for (_, idx) in stack.iter().skip(1) {
+                        parent = &mut parent.children[*idx];
+                    }
+                    
+                    let child = MindMapNode { id: uuid::Uuid::new_v4().to_string(), label: text, children: vec![] };
+                    parent.children.push(child);
+                    let new_idx = parent.children.len() - 1;
+                    
                     stack.push((level, new_idx));
                 }
             }
@@ -394,30 +403,63 @@ pub fn backup_vault(state: State<AppState>) -> Result<String, String> {
     let vault = state.vault_path.read().unwrap().clone();
     let vault_path = Path::new(&vault);
 
-    // Fix 4: write backup to a sibling directory so it's never inside the vault
     let backup_dir = vault_path.parent()
         .ok_or("Vault has no parent directory")?
         .join("cognote-backups");
     fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+    
+    // Create a WAL-safe copy of the active database connection
+    let temp_db_path = backup_dir.join("temp_cognote.db");
+    if let Err(e) = state.db.lock().unwrap().backup_to(&temp_db_path.to_string_lossy()) {
+        if temp_db_path.exists() { let _ = fs::remove_file(&temp_db_path); }
+        return Err(format!("Database backup failed: {}", e));
+    }
+
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let backup_path = backup_dir.join(format!("backup_{}.zip", timestamp));
 
-    let file = fs::File::create(&backup_path).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let zip_result = (|| -> Result<(), String> {
+        let file = fs::File::create(&backup_path).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
 
-    for entry in walkdir::WalkDir::new(vault_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
-        let rel = entry.path().strip_prefix(vault_path).map_err(|e| e.to_string())?;
-        zip.start_file(rel.to_string_lossy(), options).map_err(|e| e.to_string())?;
-        let mut f = fs::File::open(entry.path()).map_err(|e| e.to_string())?;
-        std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
+        for entry in walkdir::WalkDir::new(vault_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            
+            // Skip WAL and SHM and temp database backup files
+            if file_name == "cognote.db-wal" || file_name == "cognote.db-shm" || file_name == "temp_cognote.db" {
+                continue;
+            }
+
+            let rel = path.strip_prefix(vault_path).map_err(|e| e.to_string())?;
+            zip.start_file(rel.to_string_lossy(), options).map_err(|e| e.to_string())?;
+
+            if file_name == "cognote.db" {
+                // Read from the WAL-safe temp database instead of the live database
+                let mut f = fs::File::open(&temp_db_path).map_err(|e| e.to_string())?;
+                std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
+            } else {
+                let mut f = fs::File::open(path).map_err(|e| e.to_string())?;
+                std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
+            }
+        }
+        zip.finish().map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+
+    // Always clean up the temp database file
+    if temp_db_path.exists() {
+        let _ = fs::remove_file(&temp_db_path);
     }
-    zip.finish().map_err(|e| e.to_string())?;
+
+    zip_result?;
+
     Ok(backup_path.to_string_lossy().to_string())
 }
 

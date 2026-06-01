@@ -1,27 +1,20 @@
 <!-- ANCHOR: SHELL_READY -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Search, Network, Map, LayoutDashboard, Files, Sun, Moon, BookOpen, Tag, CheckSquare } from 'lucide-svelte';
   import NotebookTree from '$lib/components/NotebookTree.svelte';
-  import TagList from '$lib/components/TagList.svelte';
   import NoteList from '$lib/components/NoteList.svelte';
   import NoteEditor from '$lib/components/NoteEditor.svelte';
   import KnowledgeGraphView from '$lib/components/KnowledgeGraphView.svelte';
   import MindMapView from '$lib/components/MindMapView.svelte';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import FileBrowser from '$lib/components/FileBrowser.svelte';
-  import StatusBar from '$lib/components/StatusBar.svelte';
   import TaskView from '$lib/components/TaskView.svelte';
-  import ResearchView from '$lib/components/ResearchView.svelte';
   import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
   import LayoutManager from '$lib/components/layout/LayoutManager.svelte';
   import { notebooks, refreshNotebooks } from '$lib/stores/notebooks';
-  import { currentView, searchQuery, appConfig, showToast, activeNoteId, activeNotebookId, commandPaletteOpen } from '$lib/stores/app';
+  import { currentView, appConfig, showToast, activeNoteId, activeNotebookId, commandPaletteOpen } from '$lib/stores/app';
   import { updateAppConfig, createNote } from '$lib/commands';
   import { refreshNotes } from '$lib/stores/notes';
-
-  let sidebarTab: 'notebooks' | 'tags' | 'files' | 'tasks' = 'notebooks';
-  let searchInput: HTMLInputElement;
 
   onMount(() => {
     refreshNotebooks();
@@ -58,17 +51,6 @@
         break;
     }
   }
-
-  async function toggleTheme() {
-    const newTheme = $appConfig.theme === 'dark' ? 'light' : 'dark';
-    appConfig.update(c => ({ ...c, theme: newTheme }));
-    document.body.classList.toggle('light', newTheme === 'light');
-    try {
-      await updateAppConfig(newTheme);
-    } catch (err) {
-      showToast('Failed to save theme preference', 'error');
-    }
-  }
 </script>
 
 <CommandPalette />
@@ -94,8 +76,6 @@
       <FileBrowser />
     {:else if $currentView === 'tasks'}
       <TaskView />
-    {:else if $currentView === 'research'}
-      <ResearchView />
     {/if}
   </div>
 </LayoutManager>

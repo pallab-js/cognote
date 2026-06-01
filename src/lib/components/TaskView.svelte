@@ -9,6 +9,7 @@
   let showCompleted = false;
 
   let newTaskContent = '';
+  let dueDateValue = '';
 
   export async function refreshTasks() {
     loading = true;
@@ -24,17 +25,21 @@
 
   onMount(() => {
     refreshTasks();
+    window.addEventListener('tasks-updated', refreshTasks);
+    return () => window.removeEventListener('tasks-updated', refreshTasks);
   });
 
   async function addTask() {
     const content = newTaskContent.trim();
     if (!content) return;
     try {
-      const task = await createTask(content);
+      const task = await createTask(content, undefined, dueDateValue ? dueDateValue : undefined);
       newTaskContent = '';
+      dueDateValue = '';
       if (showCompleted || !task.is_completed) {
         tasks = [task, ...tasks];
       }
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
     } catch (e) {
       console.error('Failed to create task', e);
     }
@@ -48,6 +53,7 @@
       if (!showCompleted && newStatus) {
         tasks = tasks.filter(t => t.id !== task.id);
       }
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
     } catch (e) {
       console.error('Failed to update task', e);
       tasks = tasks.map(t => t.id === task.id ? { ...t, is_completed: !newStatus } : t);
@@ -58,6 +64,7 @@
     tasks = tasks.filter(t => t.id !== id);
     try {
       await deleteTask(id);
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
     } catch (e) {
       console.error('Failed to delete task', e);
       refreshTasks();
@@ -88,13 +95,22 @@
   </div>
   
   <div class="input-area">
-    <input 
-      type="text" 
-      class="task-input" 
-      placeholder="Add a new task... (Enter)" 
-      bind:value={newTaskContent}
-      onkeydown={handleKeydown}
-    />
+    <div class="input-row">
+      <input 
+        type="text" 
+        class="task-input" 
+        placeholder="Add a new task... (Enter)" 
+        bind:value={newTaskContent}
+        onkeydown={handleKeydown}
+      />
+      <input 
+        type="date" 
+        class="due-date-input" 
+        title="Set due date (optional)"
+        bind:value={dueDateValue} 
+      />
+      <button class="add-btn" onclick={addTask}>Add</button>
+    </div>
   </div>
 
   {#if loading}
@@ -150,6 +166,48 @@
   }
   .task-input:focus { border-color: var(--border-prominent); }
   .task-input::placeholder { color: var(--text-muted); }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+  }
+
+  .due-date-input {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-standard);
+    border-radius: 6px;
+    padding: 9px 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: var(--font-sans);
+    outline: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .due-date-input:focus {
+    border-color: var(--green-brand);
+    color: var(--text-primary);
+  }
+
+  .add-btn {
+    background: var(--green-brand);
+    color: #111;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-weight: 500;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .add-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(62, 207, 142, 0.2);
+  }
 
   .msg { padding: 32px 16px; text-align: center; font-size: 13px; color: var(--text-muted); }
   

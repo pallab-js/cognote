@@ -31,7 +31,7 @@
   let pinnedNotes: Note[] = [];
   let loading = true;
 
-  onMount(async () => {
+  async function loadDashboardData() {
     try {
       const [s, tasks, notebooks, graph, notes] = await Promise.all([
         getDailyStats(),
@@ -59,6 +59,12 @@
     } finally {
       loading = false;
     }
+  }
+
+  onMount(() => {
+    loadDashboardData();
+    window.addEventListener('tasks-updated', loadDashboardData);
+    return () => window.removeEventListener('tasks-updated', loadDashboardData);
   });
 
   function openNote(id: string) {
@@ -127,7 +133,7 @@
       <div class="card stat-card purple">
         <div class="card-header">
           <div class="icon-box"><Folder size={20} /></div>
-          <button class="arrow-btn" onclick={() => {}}><ArrowUpRight size={14}/></button>
+          <button class="arrow-btn" onclick={() => currentView.set('editor')}><ArrowUpRight size={14}/></button>
         </div>
         <div class="card-body">
           <span class="value">{totalProjects}</span>
